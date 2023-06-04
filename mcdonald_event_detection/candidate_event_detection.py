@@ -6,16 +6,16 @@ from astropy.stats import mad_std
 import matplotlib.pyplot as plt
 import time
 
-'''
-# identify subdirectories containg the results of each run
-subdirs = [s for d, s, f in os.walk(os.getcwd())][0]
-subdirs = [s for s in subdirs if 'results' in s ] # filter out any other directories
+# Sensitivy or Speed mode
+MODE = 'Sensitivity'
 
-subdirs = [s for s in subdirs if 'speed' not in s ] # CHANGE THIS TO TOGGLE BETWEEN SENSITIVY AND SPEED MODE DIRECTORIES
-#subdirs = [s for s in subdirs if 'results_M11' != s ] # Deal with this one separately...
-#subdirs = [s for s in subdirs if 'results_M11_Sept20_2' == s ]
-subdirs = [s for s in subdirs if 'results_M11_sensitivity' == s ]
-'''
+
+# search region is loc +- window
+# window is approx 6.25 seconds
+if MODE == 'Sensitivity':
+    window = 500
+elif MODE == 'Speed':
+    window = 1875
 
 # miminum comparison star snr
 comp_snr_thresh = 10
@@ -24,7 +24,7 @@ comp_snr_thresh = 10
 snr_skip_thresh = 5
 
 # matched-filtering snr thresh for candidate occultation events
-candidate_snr_thresh = 8
+candidate_snr_thresh = 5
 
 # where to save the results of the analysis
 OUT_PATH = "D:\McDonald_analysis"
@@ -33,14 +33,24 @@ OUT_PATH = "D:\McDonald_analysis"
 if os.path.exists(OUT_PATH) == False:
     os.makedirs(OUT_PATH)
 
+
+# make directory for the result .npy files if it doesn't exist
+result_dir = os.path.join(OUT_PATH, 'analysis', 'results')
+if os.path.exists(result_dir) == False:
+    os.makedirs(result_dir)
+
+
 # identify subdirectories containg the results of each run
 path_to_data = "E:\McDonald backups"
 subdirs = [s for d, s, f in os.walk(path_to_data)][0]
 subdirs = [s for s in subdirs if 'results' in s ] # filter out any other directories
 
-subdirs = [s for s in subdirs if 'speed' not in s ] # CHANGE THIS TO TOGGLE BETWEEN SENSITIVY AND SPEED MODE DIRECTORIES
-subdirs = [s for s in subdirs if 'rtp_M11' not in s ] # Many false positives in this one
+if MODE == 'Sensitivity':
+    subdirs = [s for s in subdirs if 'speed' not in s ] # CHANGE THIS TO TOGGLE BETWEEN SENSITIVY AND SPEED MODE DIRECTORIES
+elif MODE == 'Speed':
+    subdirs = [s for s in subdirs if 'speed' in s ]
 
+subdirs = [s for s in subdirs if 'rtp_M11' not in s ] # Many false positives in this one
 subdirs = [os.path.join(path_to_data, s) for s in subdirs]
 
 print('Data directories to be analysed:')
@@ -166,7 +176,7 @@ for s in subdirs:
     # if the subdirectory is found, the analysis is assumed to have been already done
     try:
         os.makedirs(os.path.join(OUT_PATH, 'analysis', 'figures', str(s.split("\\")[-1])), exist_ok=True)
-        os.makedirs(os.path.join(OUT_PATH, 'analysis', 'closeups',str(s.split("\\")[-1])), exist_ok=True)
+        os.makedirs(os.path.join(OUT_PATH, 'analysis', 'closeups', str(s.split("\\")[-1])), exist_ok=True)
     except FileExistsError:
         print('Results directory already exists... skipping')
         continue
@@ -237,7 +247,11 @@ for s in subdirs:
 
     ## generate a template bank of candidate occultation signals
     print('Generating template bank...')
-    temp_bank, temp_params = gen_template_bank(0.1, 1, 5, 505, 0.1, 10)
+    if MODE == 'Sensitivity':
+        temp_bank, temp_params = gen_template_bank(0.1, 1, 5, 505, 0.1, 10)
+    elif MODE == 'Speed':
+        temp_bank, temp_params = gen_template_bank(0.1, 1, 5, 2005, 0.1, 20)
+
     print("Template bank size:", len(temp_bank))
 
     ## cycle over each light curve and identifying similarity of each template
@@ -302,7 +316,7 @@ for s in subdirs:
         locs = np.array(locs)
         snrs = np.array(snrs)
 
-        window = 1000 # search region is loc +- window
+
         snr_maxs = []
         loc_check = []
         t_ids = []
@@ -342,7 +356,7 @@ for s in subdirs:
 
             ######## plotting #########
             # window for plotting
-            n1, n2 = int(loc_max - window), int(loc_max + window)
+            n1, n2 = int(loc_max - (window/2)), int(loc_max + (window/2))
 
             # comparison stars
             if i == 0:
@@ -380,9 +394,9 @@ for s in subdirs:
     # convert results to an array type
     res = np.array(res)
     print('Results array shape:', res.shape)
-    np.save(os.path.join(OUT_PATH, 'analysis/' + str(s.split("\\")[-1]) + '.npy'), res)
+    np.save(os.path.join(result_dir, str(s.split("\\")[-1]) + '.npy'), res)
 
     # and also save the peak information for quick referencing
     res_local_peaks = np.array(res_local_peaks)
     print('Local peak results array shape:', res_local_peaks.shape)
-    np.save(os.path.join(OUT_PATH, 'analysis/' + str(s.split("\\")[-1]) + '_peaks.npy'), res_local_peaks)
+    np.save(os.path.join(result_dir, str(s.split("\\")[-1])  + '_peaks.npy'), res_local_peaks)
