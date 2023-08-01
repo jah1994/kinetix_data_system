@@ -33,6 +33,8 @@ import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 ##########################################################
 
+# only used for generating "New" scenes during offline testing
+from scipy.ndimage import shift
 
 # suppress numba warning re reflected lists
 if config.suppress_numba_warning is True:
@@ -121,6 +123,16 @@ else:
     logging.info('Running software offline...')
     ref = fits.getdata(os.path.join(config.offline_path, config.offline_ref))
     ref = ref.astype(dark.dtype) # change to numpy dtype
+
+    # shifts to generate New scene
+    xshift, yshift = 1000, 500
+
+    # apply rotation
+    if SCENE == 1:
+        ref = np.flip(ref)
+    # apply integer pixel shift
+    elif SCENE == 2:
+        ref = shift(ref, (xshift, yshift), order=0, cval=np.median(ref))
     logging.info('Reference frame loaded.')
 
 
@@ -169,6 +181,32 @@ positions = find_peaks(D_norm, threshold=config.thresh, box_size=rx, border_widt
 positions.sort('peak_value')
 positions.reverse() # sort so that the highest SNR* star is first (Detection map is normalised by uncertainties)
 peaks = positions['peak_value'] # flux peaks
+
+####### Real Time plotting / Saving source stamps###
+# find sufficiently isolated bright star
+min_dist = []
+for i,pos in enumerate(positions):
+    xci, yci = pos['x_peak'], pos['y_peak']
+    dists = []
+    for j,pos in enumerate(positions):
+        if i != j:
+            xcj, ycj = pos['x_peak'], pos['y_peak']
+            dists.append(np.sqrt((xci - xcj)**2 + (yci - ycj)**2))
+    min_dist.append(min(dists))
+positions['closest_neighbour_distance [pix]'] = min_dist
+
+# distance threshold - neighbouring star centroid outside of the aperture?
+dist_thresh = np.sqrt(rx**2 + ry**2)
+print('Distance threshold:', dist_thresh)
+for i,pos in enumerate(positions):
+    if pos['closest_neighbour_distance [pix]'] >= dist_thresh:
+        s1 = i
+        logging.info('Tracking source %d' % s1)
+        logging.info('Closest neighbour is %d pixels away' % int(pos['closest_neighbour_distance [pix]']))
+        break
+###############################################
+
+
 positions = np.vstack((positions['x_peak'], positions['y_peak'])).T # numba doesn't like astropy tables
 nsources = len(positions)
 logging.info('Detected sources: %d', nsources)
@@ -254,11 +292,6 @@ logging.info('Done!')
 ####
 pf = config.plot_freq # plot frequency / stamp save frequency
 
-#### Real Time plotting / Saving source stamps
-logging.info('Select a source to track:')
-s1 = int(input('Source 1:'))
-logging.info('Tracking source %d' % s1)
-
 if config.real_time_plot is True:
 
     fig = plt.figure(figsize=(2, 2))
@@ -310,6 +343,12 @@ t0 = time.perf_counter()
 # number of data batches: total number of images processed = batches * N
 batches = config.batches
 
+
+### scene change automation ####
+NEW_SCENE = False
+med_stamp_fluxes = [] # list of historical fluxes
+candidate_change = [] # candidate change events
+change_counter = 0 # initialise change_counter (checks for consecutive signficant deviations from historical median flux)
 for batch in range(batches):
 
     if ONLINE is False:
@@ -339,8 +378,9 @@ for batch in range(batches):
     stamp_count = 0
 
     ## initialise array for autoguiding stamp
-    autoguide_stamps = np.zeros((pf, config.ag_stamp_size, config.ag_stamp_size))
-    ag_r = int(config.ag_stamp_size / 2)
+    if config.autoguide is True:
+        autoguide_stamps = np.zeros((pf, config.ag_stamp_size, config.ag_stamp_size))
+        ag_r = int(config.ag_stamp_size / 2)
 
     while n < N:
 
@@ -368,6 +408,16 @@ for batch in range(batches):
                 #data = MultiImage(file_name)[n] # load the nth image in the stack/batch
                 data = img_coll[n]
 
+                # apply rotationn or integer shifts to create a "New" scene
+                if SCENE == 0 and batch >= 6:
+                    data = np.flip(data)
+                elif SCENE == 1 and batch >= 6:
+                    data = shift(data, (xshift, yshift), order=0, cval=np.median(data))
+                elif SCENE == 1:
+                    data = np.flip(data)
+                elif SCENE == 2:
+                    data = shift(data, (xshift, yshift), order=0, cval=np.median(data))
+
             ### The workhorse ####
             tproc = time.perf_counter()
 
@@ -388,8 +438,9 @@ for batch in range(batches):
             ## cache source stamps
             stamp1s[stamp_count] = data[positions[s1][1] - ry : positions[s1][1] + ry, positions[s1][0] - rx : positions[s1][0] + rx]
 
-            ## cache autoguide stampn
-            autoguide_stamps[stamp_count] = data[positions[s1][1] - ag_r : positions[s1][1] + ag_r, positions[s1][0] - ag_r : positions[s1][0] + ag_r]
+            # cache autoguide stamp
+            if config.autoguide is True:
+                autoguide_stamps[stamp_count] = data[positions[s1][1] - ag_r : positions[s1][1] + ag_r, positions[s1][0] - ag_r : positions[s1][0] + ag_r]
 
             stamp_count += 1
 
@@ -400,16 +451,40 @@ for batch in range(batches):
                 # plot (processed) image sub-stamps
                 stamp1 = imageproc.time_average(stamp1s)
                 stamp1 = imageproc.proc(stamp1, dark_stamps[s1], flat_stamps[s1])
+
+                # compare stamp_flux to historial stamp fluxes
+                stamp_flux = np.sum(stamp1) # time-averaged stamp flux
+                stamp_flux_hist = np.median(med_stamp_fluxes) # historical median
+                stamp_flux_std = mad_std(med_stamp_fluxes) # historicdal MAD scaled to std
+
+                if len(med_stamp_fluxes) > config.burn_in:
+                    if stamp_flux < (stamp_flux_hist - config.scene_change_threshold * stamp_flux_std) or stamp_flux > (stamp_flux_hist + config.scene_change_threshold * stamp_flux_std):
+                        candidate_change.append(change_counter)
+                        print('Significant deviation from baseline flux detected')
+                        print(candidate_change)
+                        print(stamp_flux, stamp_flux_hist - config.scene_change_threshold * stamp_flux_std, stamp_flux_hist + config.scene_change_threshold * stamp_flux_std)
+                        # check for consistent deviation from baseline?
+                        if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
+                            NEW_SCENE = True
+
+                # add med to list of historical med fluxes
+                med_stamp_fluxes.append(stamp_flux)
+
+                # update change_counter
+                change_counter += 1
+
+
                 img1.set_data(stamp1.astype(float) ** (pow))
                 save_numpy_as_fits(stamp1, os.path.join(out_path, 'stamp1.fits'))
 
                 # autoguiding
-                # if temp.fits doesn't exist in share directory, write it
-                try:
-                    fits.open(os.path.join(config.ag_share_path, 'temp.fits'))
-                except FileNotFoundError:
-                    ag_stamp = np.mean(autoguide_stamps, axis=0)
-                    save_numpy_as_fits(ag_stamp, os.path.join(config.ag_share_path, 'temp.fits'))
+                if config.autoguide is True:
+                    # if temp.fits doesn't exist in share directory, write it
+                    try:
+                        fits.open(os.path.join(config.ag_share_path, 'temp.fits'))
+                    except FileNotFoundError:
+                        ag_stamp = np.mean(autoguide_stamps, axis=0)
+                        save_numpy_as_fits(ag_stamp, os.path.join(config.ag_share_path, 'temp.fits'))
 
 
                 ## reinitialise arrays to hold stamps for real-time plotting
@@ -446,6 +521,11 @@ for batch in range(batches):
         except ValueError:
             logging.debug('ValueError!!!')
             continue
+
+        # if the scene has changed, kill the script
+        if NEW_SCENE == True:
+            print('The scene has changed, aborting run.')
+            sys.exit()
 
     ## save results
     #ts = time.perf_counter()

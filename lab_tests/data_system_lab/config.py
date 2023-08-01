@@ -44,10 +44,21 @@ emp_detect = True # use an empirical estimate of data noise in place of noise mo
 nbboxes = 4
 
 real_time_plot = True # toggle whether to plot output in real time
-plot_freq = 2500 # [images] how frequent to update the real-time plotting / save the stamp data
+plot_freq = 100 # [images] how frequent to update the real-time plotting / save the stamp data
 pow = 2 # power-law scaling of real time plotted stamps
 
+
+##### SCENE CHANGE CONTROL - Decisions made at the frequency of plot_freq ############
+burn_in = 3 # how many median fluxes to consider before switching the scene (establish baseline flux)
+consecutive = 3 # how many consecutive median fluxes show significant change from baseline before making a switch
+scene_change_threshold = 10 # signifance of change
+######################################################################################
+
+#### AUTOGUIDE ##############
+autoguide = False
 ag_stamp_size = 80
 ag_share_path = 'C:/Users/rgomer/Desktop/share'
+###########################
 
+# NUMBER DEPRECATION WARNINGS?
 suppress_numba_warning = True
