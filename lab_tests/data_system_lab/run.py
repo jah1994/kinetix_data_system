@@ -60,6 +60,7 @@ if os.path.exists(out_path) == False:
 else:
     print('Result directory already exists:', out_path)
 
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[
         logging.FileHandler(os.path.join(out_path, "housekeeping.log")),
         logging.StreamHandler()
@@ -239,6 +240,7 @@ for p,pos in enumerate(positions):
     ax.text(pos[0], pos[1], str(p), fontsize=fs)
 plt.savefig(os.path.join(out_path, 'D_norm.png'), bbox_inches='tight') # save to disk for reference
 #plt.show();
+plt.close();
 
 
 ### automated background region selection
@@ -272,6 +274,7 @@ for j, (pos, rs) in enumerate(zip(bb_pos, bb_rs)):
     ax.text(pos[0], pos[1], str(j), fontsize=fs, c='r')
 plt.savefig(os.path.join(out_path, 'ref_annotated.png'), bbox_inches='tight')
 #plt.show()
+plt.close();
 
 #### Housekeeping data ###
 np.save(os.path.join(out_path, 'positions.npy'), positions) # save positions of sources
@@ -473,7 +476,6 @@ for batch in range(batches):
                 # update change_counter
                 change_counter += 1
 
-
                 img1.set_data(stamp1.astype(float) ** (pow))
                 save_numpy_as_fits(stamp1, os.path.join(out_path, 'stamp1.fits'))
 
@@ -524,7 +526,7 @@ for batch in range(batches):
 
         # if the scene has changed, kill the script
         if NEW_SCENE == True:
-            print('The scene has changed, aborting run.')
+            print('The scene has changed, aborting run.\n')
             sys.exit()
 
     ## save results

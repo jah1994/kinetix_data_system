@@ -43,8 +43,12 @@ def fit_gaussian_psf(data):
     # initialise parameters
     params = np.array([10., 5., 5., 0., (nx - 1)/2, (ny - 1)/2])
 
+    # bounds for parameters
+    bounds = [(1e-3, 1e3), (1, 30), (1, 30), (-1e3, 1e3), (1, nx), (1, ny)]
+
     # minimise loss w.r.t parameters
-    res = minimize(loss, params, method='L-BFGS-B')
+    res = minimize(loss, params, method='L-BFGS-B', bounds=bounds)
+    print('PSF model parameter estimates:', res.x)
     sigma_x, sigma_y = res.x[1], res.x[2]
     return sigma_x, sigma_y
 
@@ -85,7 +89,8 @@ def update_r(ref, positions, r, nsigma, lim, out_path):
 
     plt.imshow(psf_model)
     plt.title('PSF Model')
-    plt.savefig(os.path.join(out_path, 'psf.png'));
+    plt.savefig(os.path.join(out_path, 'psf.png'))
+    plt.close();
 
     return rx, ry, sigma_x_, sigma_y_, psf_model
 
@@ -206,7 +211,8 @@ def background_boxes(positions, peaks, ref, rx, ry, out_path, q=50, bc=250, N=16
     print('Finished in %.3f seconds.' % (time.perf_counter() - t0))
 
     plt.imshow(kde_values, origin='lower')
-    plt.savefig(os.path.join(out_path, 'kde.png'));
+    plt.savefig(os.path.join(out_path, 'kde.png'))
+    plt.close();
 
     # q kde percentile to restrict search space
     kde_q = np.percentile(kde_values.flatten(), q=q)
