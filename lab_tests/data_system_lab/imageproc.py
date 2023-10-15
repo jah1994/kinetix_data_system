@@ -8,6 +8,7 @@ from scipy.optimize import minimize
 #from scipy.signal import correlate2d
 from scipy.signal import fftconvolve
 from scipy.stats import gaussian_kde
+from scipy.ndimage import zoom
 import time
 import os
 
@@ -140,7 +141,7 @@ def calibration_stamps(dark, flat, positions, rx, ry):
 def sky_calibration_stamps(dark, flat, bb_pos, bb_rs):
     dark_stamps = [dark[pos[1] - rs[1] : pos[1] + rs[1], pos[0] - rs[0] : pos[0] + rs[0]] for pos, rs in zip(bb_pos, bb_rs)]
     flat_stamps = [flat[pos[1] - rs[1] : pos[1] + rs[1], pos[0] - rs[0] : pos[0] + rs[0]] for pos, rs in zip(bb_pos, bb_rs)]
-    return dark_stamps, flat_stamps
+    return np.array(dark_stamps), np.array(flat_stamps)
 
 @jit(nopython=True, parallel=True, nogil=False)
 def fluxes_stamps(image, dark_stamps, flat_stamps, positions, nsources, rx, ry):
@@ -165,7 +166,7 @@ def fluxes_stamps(image, dark_stamps, flat_stamps, positions, nsources, rx, ry):
 
 
 
-#@jit(nopython=True, parallel=True, nogil=False)
+@jit(nopython=True, parallel=True, nogil=False)
 def sky_stamps(image, dark_stamps, flat_stamps, nboxes, bb_pos, bb_rs):
 
     skys = np.zeros(nboxes)
@@ -184,7 +185,7 @@ def sky_stamps(image, dark_stamps, flat_stamps, nboxes, bb_pos, bb_rs):
         # dark subtract and flat correct the stamp
         proc_stamp = (stamp - dark_stamps[n]) / flat_stamps[n]
 
-        # sum up the flux of the processed pixels in the aperture
+        # compute the median of the flux of the processed pixels in the sky stamp
         skys[n] = np.median(proc_stamp)
 
     return skys
@@ -200,7 +201,7 @@ def background_boxes(positions, peaks, ref, rx, ry, out_path, q=50, bc=250, N=16
     print('Evaluating KDE for the scene...')
     t0 = time.perf_counter()
     xmin, xmax, ymin, ymax = min(positions[:,0]), max(positions[:,0]), min(positions[:,1]), max(positions[:,1])
-    x_grid, y_grid = np.mgrid[xmin:xmax:3200j, ymin:ymax:3200j]
+    x_grid, y_grid = np.mgrid[xmin:xmax:400j, ymin:ymax:400j]
     grid_coords = np.vstack([x_grid.ravel(), y_grid.ravel()])
 
     # Evaluate the KDE on the grid
@@ -208,6 +209,12 @@ def background_boxes(positions, peaks, ref, rx, ry, out_path, q=50, bc=250, N=16
 
     # Reshape the KDE values to match the grid shape
     kde_values = kde_values.reshape(x_grid.shape).T
+
+    # Define the upsampling factor (e.g., 2x or 3x)
+    upsample_factor = 8
+
+    # Perform the upsampling using scipy.ndimage.zoom
+    kde_values = zoom(kde_values, (upsample_factor, upsample_factor))
     print('Finished in %.3f seconds.' % (time.perf_counter() - t0))
 
     plt.imshow(kde_values, origin='lower')
@@ -229,8 +236,10 @@ def background_boxes(positions, peaks, ref, rx, ry, out_path, q=50, bc=250, N=16
 
 
     # quasi-random search over space
-    box_sizes_x = [200, 150, 100]
-    box_sizes_y = [200, 150, 100]
+    #box_sizes_x = [200, 150, 100]
+    #box_sizes_y = [200, 150, 100]
+    box_sizes_x = [100]
+    box_sizes_y = [100]
 
     # box centres and radii
     bb_pos = []
@@ -259,4 +268,4 @@ def background_boxes(positions, peaks, ref, rx, ry, out_path, q=50, bc=250, N=16
                         df_map[xc - box_size_x:xc + box_size_x, yc -  box_size_y:yc + box_size_y] = 1
                         i += 1
 
-    return bb_pos, bb_rs
+    return np.array(bb_pos), np.array(bb_rs)

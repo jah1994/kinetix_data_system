@@ -61,10 +61,30 @@ else:
     print('Result directory already exists:', out_path)
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[
+'''
+logging.basicConfig(level=logger.info, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[
         logging.FileHandler(os.path.join(out_path, "housekeeping.log")),
         logging.StreamHandler()
     ])
+'''
+
+logger = logging.getLogger('housekeeping_logger')
+logger.setLevel('INFO')
+# create file handler which logs
+fh = logging.FileHandler(os.path.join(out_path, "housekeeping.log"))
+fh.setLevel('INFO')
+# create console handler with the same level
+ch = logging.StreamHandler()
+ch.setLevel('INFO')
+# create formatter and add it to the handlers
+#formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+ch.setFormatter(formatter)
+fh.setFormatter(formatter)
+# add the handlers to logger
+logger.addHandler(ch)
+logger.addHandler(fh)
+
 
 
 ### Online vs offline mode ####
@@ -76,52 +96,52 @@ ONLINE = config.online
 
 ## grab calibration frames - N.B. The calibration frames for the Kinetix need to be
 ## acquired using the same mode of operation e.g. Dynamic, Speed etc.
-logging.info('Loading calibration frames...')
+logger.info('Loading calibration frames...')
 flat = np.load(config.flat)
 dark = np.load(config.dark)
-logging.info('Found flat and dark frames.')
+logger.info('Found flat and dark frames.')
 
 
 if ONLINE is True:
 
     ## Initialise and open the camera
-    logging.info('Initialising the camera...')
+    logger.info('Initialising the camera...')
     pvc.init_pvcam()                   # Initialize PVCAM
     cam = next(Camera.detect_camera()) # Use generator to find first camera.
     cam.open()                         # Open the camera.
-    logging.info('Camera open!')
+    logger.info('Camera open!')
 
     ## set camera mode
     if config.sensitivity is True:
         cam.readout_port = 0
         cam.speed_table_index = 0
         cam.gain = 1
-        logging.info('Camera in Sensitivity mode.')
+        logger.info('Camera in Sensitivity mode.')
     elif config.speed is True:
         cam.readout_port = 1
         cam.speed_table_index = 0
         cam.gain = 1
-        logging.info('Camera set to Speed mode.')
+        logger.info('Camera set to Speed mode.')
     elif config.dynamic is True:
         cam.readout_port = 2
         cam.speed_table_index = 0
         cam.gain = 1
-        logging.info('Camera in Dynamic Range mode.')
+        logger.info('Camera in Dynamic Range mode.')
     else:
         cam.readout_port = 0
         cam.speed_table_index = 0
         cam.gain = 1
-        logging.info('No camera mode specified, defaulting to Sensitivity mode...')
+        logger.info('No camera mode specified, defaulting to Sensitivity mode...')
 
 
     ### Acquire reference frame - return source positions and aperture size
     ref_exp_time = config.ref_exp_time
-    logging.info('Acquring reference frame with a %.2f second integration', (ref_exp_time / 1000))
+    logger.info('Acquring reference frame with a %.2f second integration', (ref_exp_time / 1000))
     ref = cam.get_frame(exp_time=ref_exp_time)
-    logging.info('Done!')
+    logger.info('Done!')
 
 else:
-    logging.info('Running software offline...')
+    logger.info('Running software offline...')
     ref = fits.getdata(os.path.join(config.offline_path, config.offline_ref))
     ref = ref.astype(dark.dtype) # change to numpy dtype
 
@@ -134,38 +154,38 @@ else:
     # apply integer pixel shift
     elif SCENE == 2:
         ref = shift(ref, (xshift, yshift), order=0, cval=np.median(ref))
-    logging.info('Reference frame loaded.')
+    logger.info('Reference frame loaded.')
 
 
-logging.info('Flat correcting and dark subtracting reference...')
+logger.info('Flat correcting and dark subtracting reference...')
 ref = imageproc.proc(ref, dark, flat)
-logging.info('Done!')
+logger.info('Done!')
 
 # compute estimates of the noise and sky level
 sky = np.median(ref)
-logging.info('Reference sky level [ADU]: %.3f', sky)
+logger.info('Reference sky level [ADU]: %.3f', sky)
 ref -= sky # sky subtract
 std = mad_std(ref)
-logging.info('Reference MAD [ADU]: %.3f', std)
+logger.info('Reference MAD [ADU]: %.3f', std)
 
 # save reference for visual inspection
 save_numpy_as_fits(ref, os.path.join(out_path, 'ref.fits'))
-logging.info('Saved the reference image as a ref.fits file.')
+logger.info('Saved the reference image as a ref.fits file.')
 
 
-logging.info('Starting source detection routine...')
+logger.info('Starting source detection routine...')
 # run initial peak finding routine on data to detect bright stars
 peaks = find_peaks(ref, threshold=10*std, box_size=25, border_width=50)
 peaks.sort('peak_value')
 peaks.reverse() # sort so that the brightest star is first
 
 # fit 2D Gaussian to the bright stars to estimate stamp radiu in x and y
-logging.info('Estimating PSF model and stamp radii')
+logger.info('Estimating PSF model and stamp radii')
 r = config.r0 # initial guess for stamp radius
 rx, ry, sigma_x, sigma_y, psf_model = imageproc.update_r(ref, peaks, r=r, nsigma=config.nsigma, lim=config.lim, out_path=out_path)
 
-logging.info('sigma_x=%.3f, sigma_y=%.3f', sigma_x, sigma_y)
-logging.info('rx=%d, ry=%d:', rx, ry)
+logger.info('sigma_x=%.3f, sigma_y=%.3f', sigma_x, sigma_y)
+logger.info('rx=%d, ry=%d:', rx, ry)
 
 # match-filter reference with the PSF Model and normalise to generate a detection map
 rdnoise = config.rdnoise
@@ -198,19 +218,19 @@ positions['closest_neighbour_distance [pix]'] = min_dist
 
 # distance threshold - neighbouring star centroid outside of the aperture?
 dist_thresh = np.sqrt(rx**2 + ry**2)
-print('Distance threshold:', dist_thresh)
+logger.info('Distance threshold: %.2f' % dist_thresh)
 for i,pos in enumerate(positions):
     if pos['closest_neighbour_distance [pix]'] >= dist_thresh:
         s1 = i
-        logging.info('Tracking source %d' % s1)
-        logging.info('Closest neighbour is %d pixels away' % int(pos['closest_neighbour_distance [pix]']))
+        logger.info('Tracking source %d' % s1)
+        logger.info('Closest neighbour is %d pixels away' % int(pos['closest_neighbour_distance [pix]']))
         break
 ###############################################
 
 
 positions = np.vstack((positions['x_peak'], positions['y_peak'])).T # numba doesn't like astropy tables
 nsources = len(positions)
-logging.info('Detected sources: %d', nsources)
+logger.info('Detected sources: %d', nsources)
 
 '''
 print('TESTING: bypasssing source detection...')
@@ -242,10 +262,9 @@ plt.savefig(os.path.join(out_path, 'D_norm.png'), bbox_inches='tight') # save to
 #plt.show();
 plt.close();
 
-
 ### automated background region selection
 nboxes = config.nbboxes
-logging.info('Number of background region boxes: %d', nboxes)
+logger.info('Number of background region boxes: %d', nboxes)
 
 # KDE of source positions, weighted by brightness, to allow a constrained search in sparsely populated regions
 bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, out_path=out_path, N=nboxes)
@@ -286,12 +305,10 @@ dark_stamps, flat_stamps = imageproc.calibration_stamps(np.copy(dark), np.copy(f
 sky_dark_stamps, sky_flat_stamps = imageproc.sky_calibration_stamps(np.copy(dark), np.copy(flat), bb_pos, bb_rs)
 
 ############ Live mode acquistion #################
-logging.info('JIT compiling functions...')
-
+logger.info('JIT compiling functions...')
 phot = imageproc.fluxes_stamps(ref, dark_stamps, flat_stamps, positions, nsources, rx, ry)
-#phot, phot_var = imageproc.fluxes_and_uncertainties_stamps(ref, dark_stamps, flat_stamps, positions, nsources, rx, ry, rdnoise, gain)
 skys = imageproc.sky_stamps(ref, sky_dark_stamps, sky_flat_stamps, nboxes, bb_pos, bb_rs)
-logging.info('Done!')
+logger.info('Done!')
 ####
 pf = config.plot_freq # plot frequency / stamp save frequency
 
@@ -322,11 +339,11 @@ if config.real_time_plot is True:
 
 if ONLINE is True:
     ## setup a live mode acquistion - frames stored in buffer
-    logging.info('Starting live mode acquistion...')
+    logger.info('Starting live mode acquistion...')
     exp_time = config.exp_time # ms
-    logging.info('Exposure time [ms]: %f', exp_time)
+    logger.info('Exposure time [ms]: %f', exp_time)
     cam.start_live(exp_time=exp_time, buffer_frame_count=config.buffer_count, stream_to_disk_path=None)
-    logging.info('Camera now collecting data...')
+    logger.info('Camera now collecting data...')
 
 else:
     ## offline mode - run on pre-acquired imaging data
@@ -356,10 +373,10 @@ for batch in range(batches):
 
     if ONLINE is False:
         file_name = os.path.join(path, ordered_files[batch])
-        print('Loading data from %s' % file_name)
+        logger.info('Loading data from %s' % file_name)
         img_coll = np.array(MultiImage(file_name))[0]
         print(img_coll.shape, img_coll.dtype)
-        print('Done!')
+        logger.info('Done!')
 
     t0_batch = time.perf_counter()
 
@@ -463,7 +480,7 @@ for batch in range(batches):
                 if len(med_stamp_fluxes) > config.burn_in:
                     if stamp_flux < (stamp_flux_hist - config.scene_change_threshold * stamp_flux_std) or stamp_flux > (stamp_flux_hist + config.scene_change_threshold * stamp_flux_std):
                         candidate_change.append(change_counter)
-                        print('Significant deviation from baseline flux detected')
+                        logger.info('Significant deviation from baseline flux detected')
                         print(candidate_change)
                         print(stamp_flux, stamp_flux_hist - config.scene_change_threshold * stamp_flux_std, stamp_flux_hist + config.scene_change_threshold * stamp_flux_std)
                         # check for consistent deviation from baseline?
@@ -504,7 +521,7 @@ for batch in range(batches):
 
                 fig.canvas.flush_events()
 
-                logging.info('Time taken to render figures [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
+                logger.info('Time taken to render figures [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
 
             elif n % (pf - 1) == 0 and n != 0 and config.real_time_plot is False:
 
@@ -516,7 +533,7 @@ for batch in range(batches):
                 ## reinitialise arrays to hold stamps for saving time averages
                 stamp1s = np.zeros((pf, 2 * ry, 2 * rx))
                 stamp_count = 0
-                logging.info('Time to save the image stamp [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
+                logger.info('Time to save the image stamp [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
 
             n += 1
 
@@ -526,15 +543,15 @@ for batch in range(batches):
 
         # if the scene has changed, kill the script
         if NEW_SCENE == True:
-            print('The scene has changed, aborting run.\n')
+            logger.info('The scene has changed, aborting run.\n')
             sys.exit()
 
     ## save results
     #ts = time.perf_counter()
     tbatch = time.perf_counter() - t0_batch
-    logging.info('Completed batch %d', batch)
-    logging.info('Data rate [Hz]: %d', round(N / tbatch))
-    logging.info('Mean image processing time [ms]: %.3f', np.mean(processing_times))
+    logger.info('Completed batch %d', batch)
+    logger.info('Data rate [Hz]: %d', round(N / tbatch))
+    logger.info('Mean image processing time [ms]: %.3f', np.mean(processing_times))
 
     t0_save = time.perf_counter()
     np.save(os.path.join(out_path, 'photometry_batch%d.npy' % batch), photometry)
@@ -543,17 +560,17 @@ for batch in range(batches):
     np.save(os.path.join(out_path, 'texps_batch%d.npy' % batch), texps)
     np.save(os.path.join(out_path, 'seqs_batch%d.npy' % batch), seqs)
     tsave = time.perf_counter() - t0_save
-    logging.info('Time to save batch data [ms]: %.3f', 1000 * tsave)
+    logger.info('Time to save batch data [ms]: %.3f', 1000 * tsave)
 
 
 if ONLINE is True:
     # return camera to normal state
     cam.finish()
-    logging.info('Finished live acquistion.')
+    logger.info('Finished live acquistion.')
 
-    logging.info('Closing camera...')
+    logger.info('Closing camera...')
     cam.close()
-    logging.info('Camera closed.')
+    logger.info('Camera closed.')
 
 else:
-    print('Finished offline test run.')
+    logger.info('Finished offline test run.')
