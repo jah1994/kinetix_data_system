@@ -200,11 +200,11 @@ def integrateCurve(exposure, curve, totTime, shiftAdj):
         shift += numFrames
     shift += int(numFrames*shiftAdj)
     for index in np.arange((numFrames-1)/2 + shift, len(curve)-(numFrames-1)/2, numFrames):
-        indices = range(np.int(index - (numFrames-1)/2), np.int(index+1+(numFrames-1)/2))
+        indices = range(int(index - (numFrames-1)/2), int(index+1+(numFrames-1)/2))
         av = np.average(curve[indices])
         curve[indices] = av
     last = indices[-1]+1  # bins leftover if light curve length isn't divisible by exposure time
-    shift = np.int(shift)
+    shift = int(shift)
     curve[last:] = np.average(curve[last:])
     curve[:shift] = np.average(curve[:shift])
     return curve, numFrames
@@ -295,7 +295,8 @@ ymins = [-4, -10, -3, -3]
 ymaxs = [10, 25, 6, 18]
 
 for objectRad, dist, ymin, ymax in zip(objectRads, dists, ymins, ymaxs):
-    print(objectRad, dist)
+    print('Object radius [m]:', objectRad)
+    print('Object distance [au]:', dist)
 
     # KBO == Blue, OCO == Orange
     if dist > 60:
@@ -310,7 +311,7 @@ for objectRad, dist, ymin, ymax in zip(objectRads, dists, ymins, ymaxs):
 
     # inject the fake occultation signal
     curve = genCurve(exposure, startLam, endLam, objectRad, impact, dist, angDi, shiftAdj, phi)
-    print(len(curve))
+    #print(len(curve))
 
     n = 31
     t0 = 100000
@@ -347,10 +348,12 @@ for objectRad, dist, ymin, ymax in zip(objectRads, dists, ymins, ymaxs):
     for j, tmplt in enumerate(temp_bank):
         flag_occultation_candidate(res, i, j, lc_[t0 - buffer : t1 + buffer] , tmplt)
 
-    res = np.array(res)
+    res = np.array(res, dtype=object)
 
     # plot up the results
-    fontsize = 38
+    fontsize = 72
+    lw = 3
+    pad = 25
     #snrt_max = res[:,4][np.where(res[:,2] == np.max(res[:,2]))[0][0]]
     template_id = res[:,1][np.where(res[:,2] == np.max(res[:,2]))[0][0]]
     template_params = temp_params[template_id]
@@ -361,67 +364,84 @@ for objectRad, dist, ymin, ymax in zip(objectRads, dists, ymins, ymaxs):
     template_padded = np.append(template, one_pad)
     snrt_max = matched_filter_snr(template_padded, lc_)
 
+    # MF with the true occultation signal
+    curve_padded = np.append(curve, np.ones(len(lc_) - len(curve)))
+    snrt_curve = matched_filter_snr(curve_padded, lc_)
 
-    nrows = 2
-    fig, ax = plt.subplots(figsize=(18, 15), nrows=nrows, ncols=1)
+
+    nrows, ncols = 2, 2
+    fig, ax = plt.subplots(figsize=(72, 36), nrows=nrows, ncols=2)
     for i in range(nrows):
 
         if i == 0:
 
-            ax[i].plot(t, X_norm[:, n].T / wav, c='k', alpha=0.5)
-            ax[i].set_ylabel('$I_{\mathrm{Corr}}(t)$', fontsize=fontsize)
-            ax[i].axes.xaxis.set_ticklabels([])
-            ax[i].tick_params(labelsize=fontsize)
-            ax[i].set_ylim(0, 1.2)
-            ax[i].set_xlim(0, t[-1])
-            ax[i].grid()
+            ax[i][0].plot(t[t0 - buffer : t1 + buffer],
+                       X_norm[:, n].T[t0 - buffer : t1 + buffer] / wav[t0 - buffer : t1 + buffer], c='k', lw=lw, alpha=0.5)
+            ax[i][0].plot(t[t0 - buffer:t1 + buffer], np.pad(curve, buffer, constant_values=1), c=color, lw=lw)
+            ax[i][0].set_ylabel('$I_{\mathrm{Corr}}(t)$', fontsize=fontsize)
+            ax[i][0].axes.xaxis.set_ticklabels([])
+            ax[i][0].tick_params(labelsize=fontsize-10, pad=pad)
+            ax[i][0].set_ylim(0, 1.4)
+            ax[i][0].set_xlim(t[t0 - buffer], t[t1 + buffer])
+            ax[i][0].grid()
+
+            ax[i][1].plot(t[t0 - buffer : t1 + buffer],
+                       X_norm[:, n].T[t0 - buffer : t1 + buffer] / wav[t0 - buffer : t1 + buffer], c='k', lw=lw, alpha=0.5)
+            ax[i][1].plot(t[t0 - buffer:t1 + buffer], np.pad(curve, buffer, constant_values=1), c=color, lw=lw)
+            ax[i][1].set_ylabel('$I_{\mathrm{Corr}}(t)$', fontsize=fontsize)
+            ax[i][1].axes.xaxis.set_ticklabels([])
+            ax[i][1].tick_params(labelsize=fontsize-10, pad=pad)
+            ax[i][1].set_ylim(0, 1.4)
+            ax[i][1].set_xlim(t[t0 - buffer], t[t1 + buffer])
+            ax[i][1].grid()
 
         elif i == 1:
 
-            ax[i].plot(t, snrt_max, c='tab:green')
-            ax[i].set_ylabel('$\sigma(t)$', fontsize=fontsize)
-            ax[i].tick_params(labelsize=fontsize)
-            #ax[i].hlines(7.5, 0, t[-1], color='k', linestyle='--')
-            ax[i].set_xlim(0, t[-1])
-            ax[i].grid()
+            ax[i][0].plot(t[t0 - int(buffer + len(curve)/2) : t1 + buffer] + int(len(curve)) / 2,
+                        snrt_curve[t0 - int(buffer + len(curve)/2) : t1 + buffer], c='tab:green', lw=lw)
+            ax[i][0].set_ylabel('$\sigma(t)$', fontsize=fontsize)
+            #if ymin == -10:
+            #    ax[i][0].tick_params(labelsize=fontsize-10, pad=pad)
+            #else:
+            #    ax[i][0].tick_params(labelsize=fontsize-10)
+            ax[i][0].tick_params(labelsize=fontsize-10, pad=pad)
+            ax[i][0].set_xlim(t[t0 - buffer], t[t1 + buffer])
+            ax[i][0].set_ylim(ymin, ymax)
+            ax[i][0].grid()
 
-            ax[i].set_xlabel('$t$ [Exposure number]', fontsize=fontsize)
+            ax[i][0].set_xlabel('$t$ [Exposure number]', fontsize=fontsize)
 
-    plt.savefig('figures/MF_%d_%d_u.png' % (objectRad, dist), bbox_inches='tight')
+            ax[i][1].plot(t[t0 - int(buffer + len(curve)/2) : t1 + buffer] + template_params[1],
+                        snrt_max[t0 - int(buffer + len(curve)/2) : t1 + buffer], c='tab:green', lw=lw)
+            ax[i][1].set_ylabel('$\sigma(t)$', fontsize=fontsize)
+            #if ymin == -10:
+            #    ax[i][1].tick_params(labelsize=fontsize-10, pad=pad)
+            #else:
+            #    ax[i][1].tick_params(labelsize=fontsize-10)
+            ax[i][1].tick_params(labelsize=fontsize-10, pad=pad)
+            ax[i][1].set_xlim(t[t0 - buffer], t[t1 + buffer])
+            ax[i][1].set_ylim(ymin, ymax)
+            ax[i][1].grid()
 
-    nrows = 2
-    fig, ax = plt.subplots(figsize=(18, 18), nrows=nrows, ncols=1)
-    for i in range(nrows):
-
-        if i == 0:
-
-            ax[i].plot(t[t0 - buffer : t1 + buffer],
-                       X_norm[:, n].T[t0 - buffer : t1 + buffer] / wav[t0 - buffer : t1 + buffer], c='k', alpha=0.5)
-            ax[i].plot(t[t0 - buffer:t1 + buffer], np.pad(curve, buffer, constant_values=1), c=color)
-            ax[i].set_ylabel('$I_{\mathrm{Corr}}(t)$', fontsize=fontsize)
-            ax[i].axes.xaxis.set_ticklabels([])
-            ax[i].tick_params(labelsize=fontsize-3)
-            ax[i].set_ylim(0, 1.4)
-            ax[i].set_xlim(t[t0 - buffer], t[t1 + buffer])
-            ax[i].grid()
-
-        elif i == 1:
-
-            ax[i].plot(t[t0 - int(buffer + len(curve)/2) : t1 + buffer] + template_params[1],
-                        snrt_max[t0 - int(buffer + len(curve)/2) : t1 + buffer], c='tab:green')
-            #X[:, n][t0:t1] += (np.median(X[:, n]) * (curve - 1))
-            ax[i].set_ylabel('$\sigma(t)$', fontsize=fontsize)
-            if ymin == -10:
-                ax[i].tick_params(labelsize=fontsize-3, pad=15)
-            else:
-                ax[i].tick_params(labelsize=fontsize-3)
-            #ax[i].hlines(7.5, t[t0 - buffer], t[t1 + buffer], color='k', linestyle='--')
-            ax[i].set_xlim(t[t0 - buffer], t[t1 + buffer])
-            ax[i].set_ylim(ymin, ymax)
-            ax[i].grid()
-
-            ax[i].set_xlabel('$t$ [Exposure number]', fontsize=fontsize)
-            #ax[i].set_title('Template parameters: %s' % str(template_params))
+            ax[i][1].set_xlabel('$t$ [Exposure number]', fontsize=fontsize)
 
 
-    plt.savefig('figures/MF_%d_%d_closeup_u.png' % (objectRad, dist), bbox_inches='tight')
+        # Add time in seconds to x-axis
+        ax2 = ax[0][i].twiny()
+        ax2.set_xlim(ax[0][i].get_xlim())  # Set the same
+
+        # Customize the additional x-axis (change these according to your requirements)
+        if dist > 60:
+            t_grid = np.array([99500, 1e5, 100500, 101001, 101500])
+            ax2.set_xticks(t_grid)
+            ax2.set_xticklabels((12e-3 * t_grid).astype(np.int64))
+        else:
+            t_grid = np.array([1e5, 100200, 100400, 100600, 100800, 101000, 101200])
+            ax2.set_xticks(t_grid)
+            ax2.set_xticklabels(np.round((12e-3 * t_grid), 1))
+
+        ax2.set_xlabel('Time [seconds]', fontsize=fontsize, labelpad=15)  # Label for the additional x-axis
+        ax2.tick_params(labelsize=fontsize-10, pad=pad)  # Adjust tick label size if needed
+
+
+    plt.savefig('figures/MF_%d_%d_closeup_v2.png' % (objectRad, dist), bbox_inches='tight')
