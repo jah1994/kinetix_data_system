@@ -52,11 +52,18 @@ def save_numpy_as_fits(numpy_array, filename):
 
 # dubugging and housekeeping info written to housekeeping.log
 out_path = config.out_path + '_scene_' + str(SCENE)
+phot_path = os.path.join(out_path, 'photometry')
+fits_path = os.path.join(out_path, 'fits')
+img_path = os.path.join(out_path, 'images')
+
 
 # if out_path doesn't exist, make it
 if os.path.exists(out_path) == False:
     print('Making result directory:', out_path)
     os.mkdir(out_path)
+    os.mkdir(phot_path)
+    os.mkdir(fits_path)
+    os.mkdir(img_path)
 else:
     print('Result directory already exists:', out_path)
 
@@ -169,7 +176,7 @@ std = mad_std(ref)
 logger.info('Reference MAD [ADU]: %.3f', std)
 
 # save reference for visual inspection
-save_numpy_as_fits(ref, os.path.join(out_path, 'ref.fits'))
+save_numpy_as_fits(ref, os.path.join(fits_path, 'ref.fits'))
 logger.info('Saved the reference image as a ref.fits file.')
 
 
@@ -182,7 +189,7 @@ peaks.reverse() # sort so that the brightest star is first
 # fit 2D Gaussian to the bright stars to estimate stamp radiu in x and y
 logger.info('Estimating PSF model and stamp radii')
 r = config.r0 # initial guess for stamp radius
-rx, ry, sigma_x, sigma_y, psf_model = imageproc.update_r(ref, peaks, r=r, nsigma=config.nsigma, lim=config.lim, out_path=out_path)
+rx, ry, sigma_x, sigma_y, psf_model = imageproc.update_r(ref, peaks, r=r, nsigma=config.nsigma, lim=config.lim, img_path=img_path)
 
 logger.info('sigma_x=%.3f, sigma_y=%.3f', sigma_x, sigma_y)
 logger.info('rx=%d, ry=%d:', rx, ry)
@@ -194,7 +201,7 @@ if config.emp_detect is True:
     D_norm = imageproc.make_detection_map_empirical(ref, psf_model, std)
 else:
     D_norm = imageproc.make_detection_map(ref, psf_model, rdnoise, gain)
-save_numpy_as_fits(D_norm, os.path.join(out_path, 'D_norm.fits')) # save for visual inspection
+save_numpy_as_fits(D_norm, os.path.join(fits_path, 'D_norm.fits')) # save for visual inspection
 #D_norm = fits.getdata('D_norm.fits')
 
 ## run a peak finding routine on the normalised detection map
@@ -219,15 +226,18 @@ positions['closest_neighbour_distance [pix]'] = min_dist
 # distance threshold - neighbouring star centroid outside of the aperture?
 dist_thresh = np.sqrt(rx**2 + ry**2)
 logger.info('Distance threshold: %.2f' % dist_thresh)
+S1, S2 = False, False
 for i,pos in enumerate(positions):
-    if pos['closest_neighbour_distance [pix]'] >= dist_thresh:
-        s1 = i
+    if pos['closest_neighbour_distance [pix]'] >= dist_thresh and S1 is False:
+        s1, S1 = i, True
         logger.info('Tracking source %d' % s1)
+        logger.info('Closest neighbour is %d pixels away' % int(pos['closest_neighbour_distance [pix]']))
+    elif pos['closest_neighbour_distance [pix]'] >= dist_thresh and S1 is True:
+        s2, S2 = i, True
+        logger.info('Tracking source %d' % s2)
         logger.info('Closest neighbour is %d pixels away' % int(pos['closest_neighbour_distance [pix]']))
         break
 ###############################################
-
-
 positions = np.vstack((positions['x_peak'], positions['y_peak'])).T # numba doesn't like astropy tables
 nsources = len(positions)
 logger.info('Detected sources: %d', nsources)
@@ -258,7 +268,7 @@ cbar.ax.tick_params(labelsize=ls)
 #fig.colorbar(im, cax=cax, orientation='vertical')
 for p,pos in enumerate(positions):
     ax.text(pos[0], pos[1], str(p), fontsize=fs)
-plt.savefig(os.path.join(out_path, 'D_norm.png'), bbox_inches='tight') # save to disk for reference
+plt.savefig(os.path.join(img_path, 'D_norm.png'), bbox_inches='tight') # save to disk for reference
 #plt.show();
 plt.close();
 
@@ -267,7 +277,7 @@ nboxes = config.nbboxes
 logger.info('Number of background region boxes: %d', nboxes)
 
 # KDE of source positions, weighted by brightness, to allow a constrained search in sparsely populated regions
-bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, out_path=out_path, N=nboxes)
+bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, N=nboxes)
 
 # plot template and visually check apertures look OK
 fig = plt.figure(figsize=(20, 20))
@@ -291,14 +301,14 @@ for j, (pos, rs) in enumerate(zip(bb_pos, bb_rs)):
     ax.add_patch(patches.Rectangle(xy=(pos[0] - rs[0], pos[1] - rs[1]),
                                    width=2*rs[0], height=2*rs[1], fill=False, label=j, color='red'))
     ax.text(pos[0], pos[1], str(j), fontsize=fs, c='r')
-plt.savefig(os.path.join(out_path, 'ref_annotated.png'), bbox_inches='tight')
+plt.savefig(os.path.join(img_path, 'ref_annotated.png'), bbox_inches='tight')
 #plt.show()
 plt.close();
 
 #### Housekeeping data ###
-np.save(os.path.join(out_path, 'positions.npy'), positions) # save positions of sources
-np.save(os.path.join(out_path, 'bb_pos.npy'), bb_pos) # save backbround box positions...
-np.save(os.path.join(out_path, 'bb_rs.npy'), bb_rs) #... and their raddii
+np.save(os.path.join(phot_path, 'positions.npy'), positions) # save positions of sources
+np.save(os.path.join(phot_path, 'bb_pos.npy'), bb_pos) # save backbround box positions...
+np.save(os.path.join(phot_path, 'bb_rs.npy'), bb_rs) #... and their raddii
 
 # generate calibration frame stamp_size
 dark_stamps, flat_stamps = imageproc.calibration_stamps(np.copy(dark), np.copy(flat), positions, rx, ry)
@@ -366,7 +376,8 @@ batches = config.batches
 
 ### scene change automation ####
 NEW_SCENE = False
-med_stamp_fluxes = [] # list of historical fluxes
+med_stamp1_fluxes = [] # list of historical stamp1 fluxes
+med_stamp2_fluxes = [] # list of historical stamp2 fluxes
 candidate_change = [] # candidate change events
 change_counter = 0 # initialise change_counter (checks for consecutive signficant deviations from historical median flux)
 for batch in range(batches):
@@ -394,7 +405,8 @@ for batch in range(batches):
     n = 0 # counter for number of acquired frames
 
     ## initialise arrays to hold stamps for real-time plotting
-    stamp1s = np.zeros((pf, 2 * ry, 2 * rx))
+    stamp1s = np.zeros((pf, 2 * ry, 2 * rx)) # source to splot
+    stamp2s = np.zeros((pf, 2 * ry, 2 * rx)) # other source to track
     stamp_count = 0
 
     ## initialise array for autoguiding stamp
@@ -443,7 +455,6 @@ for batch in range(batches):
 
             # aperture photometry
             phot = imageproc.fluxes_stamps(data, dark_stamps, flat_stamps, positions, nsources, rx, ry)
-            #phot, phot_var = imageproc.fluxes_and_uncertainties_stamps(data, dark_stamps, flat_stamps, positions, nsources, rx, ry, rdnoise, gain)
             photometry[n] = phot
 
             # sky regions
@@ -453,10 +464,10 @@ for batch in range(batches):
             proc_time = 1000 * (time.perf_counter() - tproc)
             processing_times[n] = proc_time
 
-            #print('Proc time [ms]:', proc_time)
-
             ## cache source stamps
             stamp1s[stamp_count] = data[positions[s1][1] - ry : positions[s1][1] + ry, positions[s1][0] - rx : positions[s1][0] + rx]
+            stamp2s[stamp_count] = data[positions[s2][1] - ry : positions[s2][1] + ry, positions[s2][0] - rx : positions[s2][0] + rx]
+
 
             # cache autoguide stamp
             if config.autoguide is True:
@@ -469,32 +480,41 @@ for batch in range(batches):
                 t0_image = time.perf_counter()
 
                 # plot (processed) image sub-stamps
-                stamp1 = imageproc.time_average(stamp1s)
-                stamp1 = imageproc.proc(stamp1, dark_stamps[s1], flat_stamps[s1])
+                stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
+                stamp2 = imageproc.proc(imageproc.time_average(stamp2s), dark_stamps[s2], flat_stamps[s2])
 
                 # compare stamp_flux to historial stamp fluxes
-                stamp_flux = np.sum(stamp1) # time-averaged stamp flux
-                stamp_flux_hist = np.median(med_stamp_fluxes) # historical median
-                stamp_flux_std = mad_std(med_stamp_fluxes) # historicdal MAD scaled to std
+                stamp1_flux = np.sum(stamp1) # time-averaged stamp flux
+                stamp2_flux = np.sum(stamp2) # time-averaged stamp flux
 
-                if len(med_stamp_fluxes) > config.burn_in:
-                    if stamp_flux < (stamp_flux_hist - config.scene_change_threshold * stamp_flux_std) or stamp_flux > (stamp_flux_hist + config.scene_change_threshold * stamp_flux_std):
-                        candidate_change.append(change_counter)
-                        logger.info('Significant deviation from baseline flux detected')
-                        print(candidate_change)
-                        print(stamp_flux, stamp_flux_hist - config.scene_change_threshold * stamp_flux_std, stamp_flux_hist + config.scene_change_threshold * stamp_flux_std)
-                        # check for consistent deviation from baseline?
-                        if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
-                            NEW_SCENE = True
+                stamp1_flux_hist = np.median(med_stamp1_fluxes) # historical median
+                stamp2_flux_hist = np.median(med_stamp2_fluxes) # historical median
+
+                stamp1_flux_std = mad_std(med_stamp1_fluxes) # historicdal MAD scaled to std
+                stamp2_flux_std = mad_std(med_stamp2_fluxes) # historicdal MAD scaled to std
+
+
+                if len(med_stamp1_fluxes) > config.burn_in and len(med_stamp2_fluxes) > config.burn_in:
+                    if stamp1_flux < (stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std) or stamp1_flux > (stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std):
+                        if stamp2_flux < (stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std) or stamp2_flux > (stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std):
+                            candidate_change.append(change_counter)
+                            logger.info('Significant deviation from baseline flux detected')
+                            print(candidate_change)
+                            print(stamp1_flux, stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std, stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std)
+                            print(stamp2_flux, stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std, stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std)
+                            # check for consistent deviation from baseline?
+                            if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
+                                NEW_SCENE = True
 
                 # add med to list of historical med fluxes
-                med_stamp_fluxes.append(stamp_flux)
+                med_stamp1_fluxes.append(stamp1_flux)
+                med_stamp2_fluxes.append(stamp2_flux)
 
                 # update change_counter
                 change_counter += 1
 
                 img1.set_data(stamp1.astype(float) ** (pow))
-                save_numpy_as_fits(stamp1, os.path.join(out_path, 'stamp1.fits'))
+                save_numpy_as_fits(stamp1, os.path.join(fits_path, 'stamp1.fits'))
 
                 # autoguiding
                 if config.autoguide is True:
@@ -506,8 +526,9 @@ for batch in range(batches):
                         save_numpy_as_fits(ag_stamp, os.path.join(config.ag_share_path, 'temp.fits'))
 
 
-                ## reinitialise arrays to hold stamps for real-time plotting
+                ## reinitialise arrays to hold stamps for real-time plotting and scene change decisions
                 stamp1s = np.zeros((pf, 2 * ry, 2 * rx))
+                stamp2s = np.zeros((pf, 2 * ry, 2 * rx))
                 stamp_count = 0
 
                 # restore background
@@ -527,11 +548,11 @@ for batch in range(batches):
 
                 # just save (processed) image sub-stamps
                 t0_image = time.perf_counter()
-                stamp1 = imageproc.time_average(stamp1s)
-                stamp1 = imageproc.proc(stamp1, dark_stamps[s1], flat_stamps[s1])
-                save_numpy_as_fits(stamp1, os.path.join(out_path, 'stamp1.fits'))
+                stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
+                save_numpy_as_fits(stamp1, os.path.join(fits_path, 'stamp1.fits'))
                 ## reinitialise arrays to hold stamps for saving time averages
                 stamp1s = np.zeros((pf, 2 * ry, 2 * rx))
+                stamp2s = np.zeros((pf, 2 * ry, 2 * rx))
                 stamp_count = 0
                 logger.info('Time to save the image stamp [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
 
@@ -554,11 +575,11 @@ for batch in range(batches):
     logger.info('Mean image processing time [ms]: %.3f', np.mean(processing_times))
 
     t0_save = time.perf_counter()
-    np.save(os.path.join(out_path, 'photometry_batch%d.npy' % batch), photometry)
-    np.save(os.path.join(out_path, 'skys_batch%d.npy' % batch), sky_lvls)
-    np.save(os.path.join(out_path, 'times_batch%d.npy' % batch), times)
-    np.save(os.path.join(out_path, 'texps_batch%d.npy' % batch), texps)
-    np.save(os.path.join(out_path, 'seqs_batch%d.npy' % batch), seqs)
+    np.save(os.path.join(phot_path, 'photometry_batch%d.npy' % batch), photometry)
+    np.save(os.path.join(phot_path, 'skys_batch%d.npy' % batch), sky_lvls)
+    np.save(os.path.join(phot_path, 'times_batch%d.npy' % batch), times)
+    np.save(os.path.join(phot_path, 'texps_batch%d.npy' % batch), texps)
+    np.save(os.path.join(phot_path, 'seqs_batch%d.npy' % batch), seqs)
     tsave = time.perf_counter() - t0_save
     logger.info('Time to save batch data [ms]: %.3f', 1000 * tsave)
 

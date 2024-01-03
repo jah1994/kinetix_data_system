@@ -53,7 +53,7 @@ def fit_gaussian_psf(data):
     sigma_x, sigma_y = res.x[1], res.x[2]
     return sigma_x, sigma_y
 
-def update_r(ref, positions, r, nsigma, lim, out_path):
+def update_r(ref, positions, r, nsigma, lim, img_path):
 
     # restrict to the lim brightest sources
     nsources = len(positions[:lim])
@@ -90,7 +90,7 @@ def update_r(ref, positions, r, nsigma, lim, out_path):
 
     plt.imshow(psf_model)
     plt.title('PSF Model')
-    plt.savefig(os.path.join(out_path, 'psf.png'))
+    plt.savefig(os.path.join(img_path, 'psf.png'))
     plt.close();
 
     return rx, ry, sigma_x_, sigma_y_, psf_model
@@ -192,7 +192,7 @@ def sky_stamps(image, dark_stamps, flat_stamps, nboxes, bb_pos, bb_rs):
 
 
 
-def background_boxes(positions, peaks, ref, rx, ry, out_path, q=50, bc=250, N=16):
+def background_boxes(positions, peaks, ref, rx, ry, img_path, q=50, bc=250, N=16):
 
     # Perform KDE on the positional data, weighted by peak flux
     kde = gaussian_kde(positions.T, weights=peaks, bw_method='scott')
@@ -218,7 +218,7 @@ def background_boxes(positions, peaks, ref, rx, ry, out_path, q=50, bc=250, N=16
     print('Finished in %.3f seconds.' % (time.perf_counter() - t0))
 
     plt.imshow(kde_values, origin='lower')
-    plt.savefig(os.path.join(out_path, 'kde.png'))
+    plt.savefig(os.path.join(img_path, 'kde.png'))
     plt.close();
 
     # q kde percentile to restrict search space
