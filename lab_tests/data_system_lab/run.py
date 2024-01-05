@@ -42,20 +42,17 @@ if config.suppress_numba_warning is True:
     import warnings
     warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
-# useful function to save arrays to fits file format
+# useful function to save numpy arrays to fits file format
 def save_numpy_as_fits(numpy_array, filename):
     hdu = fits.PrimaryHDU(numpy_array)
     hdul = fits.HDUList([hdu])
     hdul.writeto(filename, overwrite=True)
-
-
 
 # dubugging and housekeeping info written to housekeeping.log
 out_path = config.out_path + '_scene_' + str(SCENE)
 phot_path = os.path.join(out_path, 'photometry')
 fits_path = os.path.join(out_path, 'fits')
 img_path = os.path.join(out_path, 'images')
-
 
 # if out_path doesn't exist, make it
 if os.path.exists(out_path) == False:
@@ -67,14 +64,7 @@ if os.path.exists(out_path) == False:
 else:
     print('Result directory already exists:', out_path)
 
-
-'''
-logging.basicConfig(level=logger.info, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[
-        logging.FileHandler(os.path.join(out_path, "housekeeping.log")),
-        logging.StreamHandler()
-    ])
-'''
-
+### initialise logger ###
 logger = logging.getLogger('housekeeping_logger')
 logger.setLevel('INFO')
 # create file handler which logs
@@ -93,7 +83,6 @@ logger.addHandler(ch)
 logger.addHandler(fh)
 
 
-
 ### Online vs offline mode ####
 ## For testing purposes, it is useful to run the software offline on pre-acquired data
 ## ONLINE = True : Live mode acquistion with Kinetix
@@ -103,11 +92,13 @@ ONLINE = config.online
 
 ## grab calibration frames - N.B. The calibration frames for the Kinetix need to be
 ## acquired using the same mode of operation e.g. Dynamic, Speed etc.
-logger.info('Loading calibration frames...')
-flat = np.load(config.flat)
-dark = np.load(config.dark)
-logger.info('Found flat and dark frames.')
-
+if config.USE_CALIBRATION_FRAMES is True:
+    logger.info('Loading calibration frames...')
+    flat = np.load(config.flat)
+    dark = np.load(config.dark)
+    logger.info('Found flat and dark frames.')
+else:
+    logger.info('USE_CALIBRATION_FRAMES is False')
 
 if ONLINE is True:
 
@@ -150,7 +141,7 @@ if ONLINE is True:
 else:
     logger.info('Running software offline...')
     ref = fits.getdata(os.path.join(config.offline_path, config.offline_ref))
-    ref = ref.astype(dark.dtype) # change to numpy dtype
+    ref = ref.astype(np.float32) # change to numpy dtype
 
     # shifts to generate New scene
     xshift, yshift = 1000, 500
@@ -164,13 +155,16 @@ else:
     logger.info('Reference frame loaded.')
 
 
-logger.info('Flat correcting and dark subtracting reference...')
-ref = imageproc.proc(ref, dark, flat)
-logger.info('Done!')
+if config.USE_CALIBRATION_FRAMES is True:
+    logger.info('Flat correcting and dark subtracting reference...')
+    ref = imageproc.proc(ref, dark, flat)
+    logger.info('Done!')
 
 # compute estimates of the noise and sky level
-sky = np.median(ref)
-logger.info('Reference sky level [ADU]: %.3f', sky)
+#sky = np.median(ref)
+#logger.info('Reference sky level [ADU]: %.3f', sky)
+sky, modal_sky_count = imageproc.compute_mode(ref.astype(int))
+logger.info('Reference modal sky level: %d [ADU] with %d counts' % (sky, modal_sky_count))
 ref -= sky # sky subtract
 std = mad_std(ref)
 logger.info('Reference MAD [ADU]: %.3f', std)
@@ -183,6 +177,10 @@ logger.info('Saved the reference image as a ref.fits file.')
 logger.info('Starting source detection routine...')
 # run initial peak finding routine on data to detect bright stars
 peaks = find_peaks(ref, threshold=10*std, box_size=25, border_width=50)
+if peaks is None:
+    logger.info('No sources detected, aborting run.\n')
+    sys.exit()
+
 peaks.sort('peak_value')
 peaks.reverse() # sort so that the brightest star is first
 
@@ -195,12 +193,10 @@ logger.info('sigma_x=%.3f, sigma_y=%.3f', sigma_x, sigma_y)
 logger.info('rx=%d, ry=%d:', rx, ry)
 
 # match-filter reference with the PSF Model and normalise to generate a detection map
-rdnoise = config.rdnoise
-gain = config.gain
 if config.emp_detect is True:
     D_norm = imageproc.make_detection_map_empirical(ref, psf_model, std)
 else:
-    D_norm = imageproc.make_detection_map(ref, psf_model, rdnoise, gain)
+    D_norm = imageproc.make_detection_map(ref, psf_model, config.rdnoise, config.gain)
 save_numpy_as_fits(D_norm, os.path.join(fits_path, 'D_norm.fits')) # save for visual inspection
 #D_norm = fits.getdata('D_norm.fits')
 
@@ -242,16 +238,6 @@ positions = np.vstack((positions['x_peak'], positions['y_peak'])).T # numba does
 nsources = len(positions)
 logger.info('Detected sources: %d', nsources)
 
-'''
-print('TESTING: bypasssing source detection...')
-N = 128
-positions = np.random.uniform(100, 3100, (N, 2)).astype(int)
-nsources = len(positions)
-rx, ry = 30, 30
-rdnoise = config.rdnoise # e-
-gain = config.gain # e-/ADU
-'''
-
 # plot Detection map and visually check detections look good
 ls = 15 # tick label size
 fs = 12 # text fontsize
@@ -273,11 +259,13 @@ plt.savefig(os.path.join(img_path, 'D_norm.png'), bbox_inches='tight') # save to
 plt.close();
 
 ### automated background region selection
-nboxes = config.nbboxes
-logger.info('Number of background region boxes: %d', nboxes)
-
 # KDE of source positions, weighted by brightness, to allow a constrained search in sparsely populated regions
-bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, N=nboxes)
+bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, N=config.nbboxes)
+nboxes = len(bb_pos)
+if nboxes == 0:
+    logger.info('No valid background boxes found... aborting run.')
+    sys.exit()
+logger.info('Number of background region boxes: %d', nboxes)
 
 # plot template and visually check apertures look OK
 fig = plt.figure(figsize=(20, 20))
@@ -311,15 +299,22 @@ np.save(os.path.join(phot_path, 'bb_pos.npy'), bb_pos) # save backbround box pos
 np.save(os.path.join(phot_path, 'bb_rs.npy'), bb_rs) #... and their raddii
 
 # generate calibration frame stamp_size
-dark_stamps, flat_stamps = imageproc.calibration_stamps(np.copy(dark), np.copy(flat), positions, rx, ry)
-sky_dark_stamps, sky_flat_stamps = imageproc.sky_calibration_stamps(np.copy(dark), np.copy(flat), bb_pos, bb_rs)
+if config.USE_CALIBRATION_FRAMES is True:
+    logger.info('Generating calibration frame stamps for the source apertures and sky background boxes...')
+    dark_stamps, flat_stamps = imageproc.calibration_stamps(np.copy(dark), np.copy(flat), positions, rx, ry)
+    sky_dark_stamps, sky_flat_stamps = imageproc.sky_calibration_stamps(np.copy(dark), np.copy(flat), bb_pos, bb_rs)
+    logger.info('Done!')
 
 ############ Live mode acquistion #################
 logger.info('JIT compiling functions...')
-phot = imageproc.fluxes_stamps(ref, dark_stamps, flat_stamps, positions, nsources, rx, ry)
-skys = imageproc.sky_stamps(ref, sky_dark_stamps, sky_flat_stamps, nboxes, bb_pos, bb_rs)
+if config.USE_CALIBRATION_FRAMES is True:
+    phot = imageproc.fluxes_stamps(ref, dark_stamps, flat_stamps, positions, nsources, rx, ry)
+    skys = imageproc.sky_stamps(ref, sky_dark_stamps, sky_flat_stamps, nboxes, bb_pos, bb_rs)
+else:
+    phot = imageproc.fluxes_stamps_nocal(ref, positions, nsources, rx, ry)
+    skys = imageproc.sky_stamps_nocal(ref, nboxes, bb_pos, bb_rs)
 logger.info('Done!')
-####
+
 pf = config.plot_freq # plot frequency / stamp save frequency
 
 if config.real_time_plot is True:
@@ -334,9 +329,13 @@ if config.real_time_plot is True:
     RX, RY = np.linspace(0, 2 * rx, num= 2 * rx), np.linspace(0, 2* ry, num= 2 * ry)
     X, Y = np.meshgrid(RX, RY)
 
-    minview = int(np.median(dark))
-    c = 100
-    img1 = ax1.imshow(X, cmap="Greys", vmin=minview, vmax=minview+c, origin='lower')
+    if config.USE_CALIBRATION_FRAMES is True:
+        minview = int(np.median(dark))
+        maxview = minview + 100
+    else:
+        minview = sky ** pow
+        maxview = minview + 1000
+    img1 = ax1.imshow(X, cmap="Greys", vmin=minview, vmax=maxview, origin='lower')
     ax1.set_title('Source: %d' % s1)
 
     fig.canvas.draw()
@@ -373,7 +372,6 @@ t0 = time.perf_counter()
 # number of data batches: total number of images processed = batches * N
 batches = config.batches
 
-
 ### scene change automation ####
 NEW_SCENE = False
 med_stamp1_fluxes = [] # list of historical stamp1 fluxes
@@ -395,7 +393,6 @@ for batch in range(batches):
 
     # generate array to store results
     photometry = np.zeros((N, len(positions)))
-    #photometry_var = np.zeros((N, len(positions)))
     times = np.zeros(N)
     texps = np.zeros(N) # housekeeping... useful diagnostic
     seqs = np.zeros(N) # housekeeping... sequence number
@@ -453,12 +450,15 @@ for batch in range(batches):
             ### The workhorse ####
             tproc = time.perf_counter()
 
-            # aperture photometry
-            phot = imageproc.fluxes_stamps(data, dark_stamps, flat_stamps, positions, nsources, rx, ry)
-            photometry[n] = phot
+            # aperture photometry and sky region levels
+            if config.USE_CALIBRATION_FRAMES is True:
+                phot = imageproc.fluxes_stamps(data, dark_stamps, flat_stamps, positions, nsources, rx, ry)
+                skys = imageproc.sky_stamps(data, sky_dark_stamps, sky_flat_stamps, nboxes, bb_pos, bb_rs)
+            else:
+                phot = imageproc.fluxes_stamps_nocal(data, positions, nsources, rx, ry)
+                skys = imageproc.sky_stamps_nocal(data, nboxes, bb_pos, bb_rs)
 
-            # sky regions
-            skys = imageproc.sky_stamps(data, sky_dark_stamps, sky_flat_stamps, nboxes, bb_pos, bb_rs)
+            photometry[n] = phot
             sky_lvls[n] = skys
 
             proc_time = 1000 * (time.perf_counter() - tproc)
@@ -480,8 +480,13 @@ for batch in range(batches):
                 t0_image = time.perf_counter()
 
                 # plot (processed) image sub-stamps
-                stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
-                stamp2 = imageproc.proc(imageproc.time_average(stamp2s), dark_stamps[s2], flat_stamps[s2])
+                if config.USE_CALIBRATION_FRAMES is True:
+                    stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
+                    stamp2 = imageproc.proc(imageproc.time_average(stamp2s), dark_stamps[s2], flat_stamps[s2])
+                else:
+                    stamp1 = imageproc.time_average(stamp1s)
+                    stamp2 = imageproc.time_average(stamp2s)
+
 
                 # compare stamp_flux to historial stamp fluxes
                 stamp1_flux = np.sum(stamp1) # time-averaged stamp flux
@@ -498,10 +503,13 @@ for batch in range(batches):
                     if stamp1_flux < (stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std) or stamp1_flux > (stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std):
                         if stamp2_flux < (stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std) or stamp2_flux > (stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std):
                             candidate_change.append(change_counter)
-                            logger.info('Significant deviation from baseline flux detected')
-                            print(candidate_change)
-                            print(stamp1_flux, stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std, stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std)
-                            print(stamp2_flux, stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std, stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std)
+                            logger.info('Candidate change event detected...')
+                            logger.info('Significant deviations from baseline fluxes for sources %d and %d' % (s1, s2))
+                            stamp1_sigma, stamp2_sigma = (stamp1_flux - stamp1_flux_hist) / stamp1_flux_std, (stamp2_flux - stamp2_flux_hist) / stamp2_flux_std
+                            logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s1, stamp1_sigma))
+                            logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s2, stamp2_sigma))
+                            #print(stamp1_flux, stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std, stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std)
+                            #print(stamp2_flux, stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std, stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std)
                             # check for consistent deviation from baseline?
                             if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
                                 NEW_SCENE = True
@@ -548,8 +556,12 @@ for batch in range(batches):
 
                 # just save (processed) image sub-stamps
                 t0_image = time.perf_counter()
-                stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
+                if config.USE_CALIBRATION_FRAMES is True:
+                    stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
+                else:
+                    stamp1 = imageproc.time_average(stamp1s)
                 save_numpy_as_fits(stamp1, os.path.join(fits_path, 'stamp1.fits'))
+
                 ## reinitialise arrays to hold stamps for saving time averages
                 stamp1s = np.zeros((pf, 2 * ry, 2 * rx))
                 stamp2s = np.zeros((pf, 2 * ry, 2 * rx))

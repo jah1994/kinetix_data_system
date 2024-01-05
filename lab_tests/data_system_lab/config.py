@@ -27,6 +27,7 @@ batches = 10 # number of data batches: total number of images processed = batche
 N = 100 # total number of exposures to acquire per batch
 
 # calibration file paths
+USE_CALIBRATION_FRAMES = False
 flat = "D:/offline_tests/data/master_flat_3200.npy"
 dark = "D:/offline_tests/data/master_dark_3200.npy"
 
@@ -37,10 +38,10 @@ lim = 5 # number of bright stars to use for estimating the PSF model
 # source detection
 rdnoise = 1.2 # e- Sensitivity mode: 1.2, Dynamic mode: 1.6, Speed mode: 2
 gain = 0.25 # e-/ADU Sensitivity mode: 0.25, Dynamic mode: 0.23, Speed mode: 0.85
-thresh = 10 # threshold (in sigmas) of detection map
+thresh = 50 #10 # threshold (in sigmas) of detection map
 emp_detect = True # use an empirical estimate of data noise in place of noise model (overides rdnoise and gain)
 
-# number of background boxes to generate
+# maximum number of background boxes to generate
 nbboxes = 8
 
 real_time_plot = True # toggle whether to plot output in real time

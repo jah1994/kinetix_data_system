@@ -27,6 +27,20 @@
 - if the saved photometry files is equal or less than the burn-in setting, the directory is deleted
 # TODO: SEPARATE RESULTS DIRECTORY
 - results now saved to separate fits, images and photometry directories
+
+# TODO: DON'T RUN IF NO SOURCES DETECTED (COULD GET STUCK RECORDING ~0 FLUX WITH NO CHANGE)
+- if no peaks are returned, the run is aborted and the results file deleted
+
+# TODO: LIMIT TIME SPENT FINDING BACKGROUND REGIONS (COULD GET STUCK TRYING TO FIND A REGION WHICH SATISIFES THE CONDITION)
+- search is aborted after 5 seconds, and if no boxes are found, the run is aborted and the results directory deleted
+
+# TODO: FLAT AND DARK SCRIPTS (MAKE A VERSION AGNOSTIC TO WHETHER THERE'S AN AVAILABLE DARK/FLAT?)
+- done. required some tweaking of the real-time plotting to adapt to displays in the presence of image bias
+
+# TODO: MODAL SKY BACKGROUND ESTIMATE?
+- implemented a numpy method to do this, as the median pixel value was overestimating the background in crowded fields
+- this requires adjusting the source detection threshold, as for a given threshold, more will typically be detected after a modal subtraction
+
 # TODO: COMPLETE AUTOMATION... I.E. IF NOTHING'S GOING ON IN THE DAY, IT DOESN'T DO ANYTHING, EXCEPT
 POSSIBLY ANALYSE THE PREVIOUS NIGHT'S WORTH OF DATA
 # TODO: OCCULTATION DETECTION; END OF ONE BATCH AND START OF THE OTHER...

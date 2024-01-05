@@ -145,52 +145,59 @@ def sky_calibration_stamps(dark, flat, bb_pos, bb_rs):
 
 @jit(nopython=True, parallel=True, nogil=False)
 def fluxes_stamps(image, dark_stamps, flat_stamps, positions, nsources, rx, ry):
-
-    #nsources = len(positions) # Numba doesn't work with astropy tables
     fluxes = np.zeros(nsources)
     for n in prange(nsources):
-
         # source position (x, y)
         pos = positions[n]
-
         # cutout the stamp around the source position and reduce pixels
         stamp = image[pos[1] - ry : pos[1] + ry, pos[0] - rx : pos[0] + rx]
-
         # dark subtract and flat correct the stamp
         proc_stamp = (stamp - dark_stamps[n]) / flat_stamps[n]
-
         # sum up the flux of the processed pixels in the aperture
         fluxes[n] = np.sum(proc_stamp)
-
     return fluxes
-
-
 
 @jit(nopython=True, parallel=True, nogil=False)
 def sky_stamps(image, dark_stamps, flat_stamps, nboxes, bb_pos, bb_rs):
-
     skys = np.zeros(nboxes)
-
     for n in prange(nboxes):
-
         # box position (x, y)
         pos = bb_pos[n]
-
         # box radii (x, y)
         rs = bb_rs[n]
-
         # cutout the stamp around the source position and reduce pixels
         stamp = image[pos[1] - rs[1] : pos[1] + rs[1], pos[0] - rs[0] : pos[0] + rs[0]]
-
         # dark subtract and flat correct the stamp
         proc_stamp = (stamp - dark_stamps[n]) / flat_stamps[n]
-
         # compute the median of the flux of the processed pixels in the sky stamp
         skys[n] = np.median(proc_stamp)
-
     return skys
 
+@jit(nopython=True, parallel=True, nogil=False)
+def fluxes_stamps_nocal(image, positions, nsources, rx, ry):
+    fluxes = np.zeros(nsources)
+    for n in prange(nsources):
+        # source position (x, y)
+        pos = positions[n]
+        # cutout the stamp around the source position and reduce pixels
+        stamp = image[pos[1] - ry : pos[1] + ry, pos[0] - rx : pos[0] + rx]
+        # sum up the flux of the processed pixels in the aperture
+        fluxes[n] = np.sum(stamp)
+    return fluxes
 
+@jit(nopython=True, parallel=True, nogil=False)
+def sky_stamps_nocal(image, nboxes, bb_pos, bb_rs):
+    skys = np.zeros(nboxes)
+    for n in prange(nboxes):
+        # box position (x, y)
+        pos = bb_pos[n]
+        # box radii (x, y)
+        rs = bb_rs[n]
+        # cutout the stamp around the source position and reduce pixels
+        stamp = image[pos[1] - rs[1] : pos[1] + rs[1], pos[0] - rs[0] : pos[0] + rs[0]]
+        # compute the median of the flux of the processed pixels in the sky stamp
+        skys[n] = np.median(stamp)
+    return skys
 
 def background_boxes(positions, peaks, ref, rx, ry, img_path, q=50, bc=250, N=16):
 
@@ -245,8 +252,9 @@ def background_boxes(positions, peaks, ref, rx, ry, img_path, q=50, bc=250, N=16
     bb_pos = []
     bb_rs = []
 
-    # find candidate regions
+    # find candidate regions (if unable to find N, find as many as possible in 5 seconds)
     i = 0
+    t = time.time()
     while i < N:
 
         # find coordinates within the search region
@@ -267,5 +275,14 @@ def background_boxes(positions, peaks, ref, rx, ry, img_path, q=50, bc=250, N=16
                         # update the df image with new background regions
                         df_map[xc - box_size_x:xc + box_size_x, yc -  box_size_y:yc + box_size_y] = 1
                         i += 1
+        if time.time() - t >= 5:
+            break
 
     return np.array(bb_pos), np.array(bb_rs)
+
+def compute_mode(arr):
+    unique_elements, counts = np.unique(arr, return_counts=True)
+    max_count_index = np.argmax(counts)
+    mode_value = unique_elements[max_count_index]
+    mode_count = counts[max_count_index]
+    return mode_value, mode_count
