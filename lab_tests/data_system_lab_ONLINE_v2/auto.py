@@ -7,7 +7,7 @@ import subprocess
 
 def main():
     i = 0
-    num_iterations = 3  # Set the number of times you want to call the function
+    num_iterations = 1000  # Set the number of times you want to call the function
     while i <= num_iterations:
         subprocess.run(["python", "run.py", str(i)])
 
