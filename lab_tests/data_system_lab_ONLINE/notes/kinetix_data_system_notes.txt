@@ -45,6 +45,26 @@
 POSSIBLY ANALYSE THE PREVIOUS NIGHT'S WORTH OF DATA
 # TODO: OCCULTATION DETECTION; END OF ONE BATCH AND START OF THE OTHER...
 
+
+############################################################
+- TESTS (11/01/2024)
+- Running without cablibration frames
+- Dark fields when no sources detected
+- Same tests as last time (making sure folder structure saved correctly)
+
+- reference exposure quality...
+- bounds on flux
+- airmass.org (moon positioning) (rich as cluster as possible)....
+
+# Other considerations:
+- How does it behave when the telescope "slews"? Difficult to test on my end. Maybe something simple like
+standard deviations from measured background level? / set batch size to be small?? / take another ref exposure just before
+the run starts and compare brightness and position changes????
+
+# better file management after Ctrl-C - separate "run" directories to ensure no overwrites
+
+
+
 ##########################################################
 ###### package updates and other etc. ####################
 
