@@ -2,14 +2,14 @@
 ## For testing purposes, it is useful to run the software offline on pre-acquired data
 ## ONLINE = True : Live mode acquistion with Kinetix
 ## ONLINE = False : (Testing onlyl) Run offline on pre-acquired imaging data
-online = True
+online = False
 
 ## OFFLINE only ##
 offline_path = "D:/offline_tests/data" # path to test data in offline mode only
 offline_ref = "M2.fits" # reference image in the offline_path directory to be used in offline mode
 
 # file out path
-out_path = TODO
+out_path = "D:/offline_tests/"
 
 # Kinetix mode
 sensitivity = True
@@ -27,9 +27,9 @@ batches = 1000 # number of data batches: total number of images processed = batc
 N = 100 # total number of exposures to acquire per batch
 
 # calibration file paths
-USE_CALIBRATION_FRAMES = False
-flat = TODO
-dark = TODO
+USE_CALIBRATION_FRAMES = True
+flat = "D:/offline_tests/data/master_flat_3200.npy"
+dark = "D:/offline_tests/data/master_dark_3200.npy"
 
 r0 = 30 # initial guess at stamp radii (used to specify stamp size to fit PSF model)
 nsigma = 2.5 # apeture stamp radii will be nsigma * sigma
@@ -41,8 +41,9 @@ gain = 0.25 # e-/ADU Sensitivity mode: 0.25, Dynamic mode: 0.23, Speed mode: 0.8
 thresh = 50 #10 # threshold (in sigmas) of detection map
 emp_detect = True # use an empirical estimate of data noise in place of noise model (overides rdnoise and gain)
 
-# maximum number of background boxes to generate
-nbboxes = 8
+# background boxes
+nbboxes = 8 # maximum number of background boxes to generate
+bbox_size = 128 # single axis size in pixels of square background boxes
 
 real_time_plot = True # toggle whether to plot output in real time
 plot_freq = 100 # [images] how frequent to update the real-time plotting / save the stamp data

@@ -199,7 +199,7 @@ def sky_stamps_nocal(image, nboxes, bb_pos, bb_rs):
         skys[n] = np.median(stamp)
     return skys
 
-def background_boxes(positions, peaks, ref, rx, ry, img_path, q=50, bc=250, N=16):
+def background_boxes(positions, peaks, ref, rx, ry, img_path, bbox_size, q=50, bc=250, N=16):
 
     # Perform KDE on the positional data, weighted by peak flux
     kde = gaussian_kde(positions.T, weights=peaks, bw_method='scott')
@@ -245,8 +245,8 @@ def background_boxes(positions, peaks, ref, rx, ry, img_path, q=50, bc=250, N=16
     # quasi-random search over space
     #box_sizes_x = [200, 150, 100]
     #box_sizes_y = [200, 150, 100]
-    box_sizes_x = [100]
-    box_sizes_y = [100]
+    box_sizes_x = [bbox_size]
+    box_sizes_y = [bbox_size]
 
     # box centres and radii
     bb_pos = []

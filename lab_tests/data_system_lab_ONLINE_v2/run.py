@@ -5,10 +5,11 @@ import sys
 import logging
 
 # usage example in terminal
-#python run.py 0
+#python run.py 0 0
 
-# scene id
-SCENE = int(sys.argv[1]) # no data value of rasters
+# run id and scene id
+RUN = int(sys.argv[1])
+SCENE = int(sys.argv[2])
 
 
 try:
@@ -49,10 +50,17 @@ def save_numpy_as_fits(numpy_array, filename):
     hdul.writeto(filename, overwrite=True)
 
 # dubugging and housekeeping info written to housekeeping.log
-out_path = config.out_path + '_scene_' + str(SCENE)
+#out_path = config.out_path + '/RUN_' + str(RUN) + '/SCENE_' + str(SCENE)
+run_dir = os.path.join(config.out_path, 'RUN_' + str(RUN))
+out_path = os.path.join(run_dir, 'SCENE_' + str(SCENE))
 phot_path = os.path.join(out_path, 'photometry')
 fits_path = os.path.join(out_path, 'fits')
 img_path = os.path.join(out_path, 'images')
+
+# if run directory doesn't exist, make it
+if os.path.exists(run_dir) == False:
+    print('Making directory for RUN %d' % RUN)
+    os.mkdir(run_dir)
 
 # if out_path doesn't exist, make it
 if os.path.exists(out_path) == False:
@@ -260,7 +268,7 @@ plt.close();
 
 ### automated background region selection
 # KDE of source positions, weighted by brightness, to allow a constrained search in sparsely populated regions
-bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, N=config.nbboxes)
+bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, bbox_size=config.bbox_size, N=config.nbboxes)
 nboxes = len(bb_pos)
 if nboxes == 0:
     logger.info('No valid background boxes found... aborting run.')
@@ -439,7 +447,8 @@ for batch in range(batches):
 
                 # apply rotationn or integer shifts to create a "New" scene
                 if SCENE == 0 and batch >= 6:
-                    data = np.flip(data)
+                    #data = np.flip(data)
+                    data = np.random.normal(0,1, data.shape)
                 elif SCENE == 1 and batch >= 6:
                     data = shift(data, (xshift, yshift), order=0, cval=np.median(data))
                 elif SCENE == 1:
@@ -458,9 +467,11 @@ for batch in range(batches):
                 phot = imageproc.fluxes_stamps_nocal(data, positions, nsources, rx, ry)
                 skys = imageproc.sky_stamps_nocal(data, nboxes, bb_pos, bb_rs)
 
+            # store aperture photometry and sky background estimates
             photometry[n] = phot
             sky_lvls[n] = skys
 
+            # compute processing time
             proc_time = 1000 * (time.perf_counter() - tproc)
             processing_times[n] = proc_time
 
@@ -498,7 +509,6 @@ for batch in range(batches):
                 stamp1_flux_std = mad_std(med_stamp1_fluxes) # historicdal MAD scaled to std
                 stamp2_flux_std = mad_std(med_stamp2_fluxes) # historicdal MAD scaled to std
 
-
                 if len(med_stamp1_fluxes) > config.burn_in and len(med_stamp2_fluxes) > config.burn_in:
                     if stamp1_flux < (stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std) or stamp1_flux > (stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std):
                         if stamp2_flux < (stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std) or stamp2_flux > (stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std):
@@ -508,8 +518,10 @@ for batch in range(batches):
                             stamp1_sigma, stamp2_sigma = (stamp1_flux - stamp1_flux_hist) / stamp1_flux_std, (stamp2_flux - stamp2_flux_hist) / stamp2_flux_std
                             logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s1, stamp1_sigma))
                             logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s2, stamp2_sigma))
-                            #print(stamp1_flux, stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std, stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std)
-                            #print(stamp2_flux, stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std, stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std)
+                            ap_sky_lvl = ((2 * rx) * (2 * ry)) * (np.median(sky_lvls[sky_lvls != 0]))
+                            print('Sky aperture background sum (med):', ap_sky_lvl)
+                            print('stamp1_flux / ap_sky_lvl:', stamp1_flux / ap_sky_lvl)
+                            print('stamp2_flux / ap_sky_lvl:', stamp2_flux / ap_sky_lvl)
                             # check for consistent deviation from baseline?
                             if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
                                 NEW_SCENE = True

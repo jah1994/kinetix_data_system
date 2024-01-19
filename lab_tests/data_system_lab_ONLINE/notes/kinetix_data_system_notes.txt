@@ -53,7 +53,7 @@ POSSIBLY ANALYSE THE PREVIOUS NIGHT'S WORTH OF DATA
 - Same tests as last time (making sure folder structure saved correctly)
 
 - reference exposure quality...
-- bounds on flux
+
 - airmass.org (moon positioning) (rich as cluster as possible)....
 
 # Other considerations:
@@ -61,8 +61,11 @@ POSSIBLY ANALYSE THE PREVIOUS NIGHT'S WORTH OF DATA
 standard deviations from measured background level? / set batch size to be small?? / take another ref exposure just before
 the run starts and compare brightness and position changes????
 
-# better file management after Ctrl-C - separate "run" directories to ensure no overwrites
+# TODO: better file management after Ctrl-C - separate "run" directories to ensure no overwrites
+- Each run generates a unique directory, ordered like "RUN_0", "RUN_1" etc. within each "SCENE_0", "SCENE_1" etc. directories
+are generated
 
+# TODO: BOUNDS ON PSF MODEL PARAMETERS E.G. FLUX
 
 
 ##########################################################
