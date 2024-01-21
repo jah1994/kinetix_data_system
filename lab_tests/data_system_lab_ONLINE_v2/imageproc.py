@@ -45,7 +45,8 @@ def fit_gaussian_psf(data):
     params = np.array([10., 5., 5., 0., (nx - 1)/2, (ny - 1)/2])
 
     # bounds for parameters
-    bounds = [(1e-3, 1e3), (1, 30), (1, 30), (-1e3, 1e3), (1, nx), (1, ny)]
+    #bounds = [(1e-3, 1e3), (1, 30), (1, 30), (-1e3, 1e3), (1, nx), (1, ny)]
+    bounds = [(0, 1e9), (1, 30), (1, 30), (-1e9, 1e9), (1, nx), (1, ny)]
 
     # minimise loss w.r.t parameters
     res = minimize(loss, params, method='L-BFGS-B', bounds=bounds)
@@ -97,8 +98,6 @@ def update_r(ref, positions, r, nsigma, lim, img_path):
 
 
 def make_detection_map(ref, psf_model, rdnoise, gain):
-
-    #ref[ref < 0] = 0 # hack!
 
     # match-filter reference with the PSF Model to generate a detection map
     print('Cross-correlating reference image with the PSF model... this could take a while.')

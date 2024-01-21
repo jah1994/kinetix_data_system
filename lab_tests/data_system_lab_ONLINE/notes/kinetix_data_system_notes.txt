@@ -68,7 +68,12 @@ the run starts and compare brightness and position changes????
 are generated
 
 # TODO: BOUNDS ON PSF MODEL PARAMETERS E.G. FLUX
+A, sigma_x, sigma_y, b, xc, yc = params
+old bounds: bounds = [(1e-3, 1e3), (1, 30), (1, 30), (-1e3, 1e3), (1, nx), (1, ny)]
+new bounds = [(0, 1e9), (1, 30), (1, 30), (-1e9, 1e9), (1, nx), (1, ny)]
 
+# TODO: HEURISTIC ASSESSMENT OF PSF MODEL
+- if the 2d gaussian x/y axis length is >= 2 of the y/x length, abort run, and reacquire a new reference image
 
 ##########################################################
 ###### package updates and other etc. ####################

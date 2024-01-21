@@ -90,16 +90,13 @@ fh.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
-
 ### Online vs offline mode ####
 ## For testing purposes, it is useful to run the software offline on pre-acquired data
 ## ONLINE = True : Live mode acquistion with Kinetix
 ## ONLINE = False : (Testing onlyl) Run offline on pre-acquired imaging data
 ONLINE = config.online
 
-
-## grab calibration frames - N.B. The calibration frames for the Kinetix need to be
-## acquired using the same mode of operation e.g. Dynamic, Speed etc.
+## grab calibration frames - N.B. The calibration frames for the Kinetix must be acquired using the same mode of operation
 if config.USE_CALIBRATION_FRAMES is True:
     logger.info('Loading calibration frames...')
     flat = np.load(config.flat)
@@ -151,7 +148,7 @@ else:
     ref = fits.getdata(os.path.join(config.offline_path, config.offline_ref))
     ref = ref.astype(np.float32) # change to numpy dtype
 
-    # shifts to generate New scene
+    # shifts to generate New scene for testing automated scene change detection
     xshift, yshift = 1000, 500
 
     # apply rotation
@@ -181,24 +178,31 @@ logger.info('Reference MAD [ADU]: %.3f', std)
 save_numpy_as_fits(ref, os.path.join(fits_path, 'ref.fits'))
 logger.info('Saved the reference image as a ref.fits file.')
 
-
-logger.info('Starting source detection routine...')
 # run initial peak finding routine on data to detect bright stars
-peaks = find_peaks(ref, threshold=10*std, box_size=25, border_width=50)
-if peaks is None:
-    logger.info('No sources detected, aborting run.\n')
+logger.info('Starting source detection routine...')
+peaks = find_peaks(ref, threshold=10*std, box_size=config.r0, border_width=2*config.r0)
+
+# at least two sources should be detected, otherwise retry reference frame acquisition
+if peaks is None or len(peaks) <= 1:
+    logger.info('An insufficient number of sources was detected, aborting run to reacquire a reference image.\n')
     sys.exit()
 
+# sort peaks so that the brightest source is the first
 peaks.sort('peak_value')
-peaks.reverse() # sort so that the brightest star is first
+peaks.reverse()
 
-# fit 2D Gaussian to the bright stars to estimate stamp radiu in x and y
+# fit 2D Gaussian to the bright sources to estimate stamp radii in x and y
 logger.info('Estimating PSF model and stamp radii')
 r = config.r0 # initial guess for stamp radius
 rx, ry, sigma_x, sigma_y, psf_model = imageproc.update_r(ref, peaks, r=r, nsigma=config.nsigma, lim=config.lim, img_path=img_path)
-
 logger.info('sigma_x=%.3f, sigma_y=%.3f', sigma_x, sigma_y)
 logger.info('rx=%d, ry=%d:', rx, ry)
+
+## heuristically assess the quality of the PSF model
+# test 1) (x,y) asymmetry
+if (rx / ry) >= 2 or (ry / rx) >= 2:
+    logger.info('The fitted PSF model is badly asymmetric... aborting run to reacquire a reference image.\n')
+    sys.exit()
 
 # match-filter reference with the PSF Model and normalise to generate a detection map
 if config.emp_detect is True:
@@ -206,12 +210,11 @@ if config.emp_detect is True:
 else:
     D_norm = imageproc.make_detection_map(ref, psf_model, config.rdnoise, config.gain)
 save_numpy_as_fits(D_norm, os.path.join(fits_path, 'D_norm.fits')) # save for visual inspection
-#D_norm = fits.getdata('D_norm.fits')
 
 ## run a peak finding routine on the normalised detection map
-positions = find_peaks(D_norm, threshold=config.thresh, box_size=rx, border_width=2*rx)
+positions = find_peaks(D_norm, threshold=config.thresh, box_size=int((rx + ry)/2), border_width=(rx + ry))
 positions.sort('peak_value')
-positions.reverse() # sort so that the highest SNR* star is first (Detection map is normalised by uncertainties)
+positions.reverse() # sort so that the highest SNR star is first (Detection map is normalised by uncertainties)
 peaks = positions['peak_value'] # flux peaks
 
 ####### Real Time plotting / Saving source stamps###
@@ -271,7 +274,7 @@ plt.close();
 bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, bbox_size=config.bbox_size, N=config.nbboxes)
 nboxes = len(bb_pos)
 if nboxes == 0:
-    logger.info('No valid background boxes found... aborting run.')
+    logger.info('No valid background boxes found... aborting run to reacquire a new reference image.\n')
     sys.exit()
 logger.info('Number of background region boxes: %d', nboxes)
 
@@ -285,7 +288,6 @@ im = ax.imshow(ref + sky, origin='lower')
 cbar = ax.figure.colorbar(im, cax=cax)
 cbar.set_label("Counts [ADU]", fontsize=ls)
 cbar.ax.tick_params(labelsize=ls)
-#fig.colorbar(im, cax=cax, orientation='vertical')
 for p,pos in enumerate(positions):
     ax.add_patch(patches.Rectangle(xy=(pos[0]-rx, pos[1]-ry),
                                    width=2*rx, height=2*ry, fill=False,
@@ -298,7 +300,6 @@ for j, (pos, rs) in enumerate(zip(bb_pos, bb_rs)):
                                    width=2*rs[0], height=2*rs[1], fill=False, label=j, color='red'))
     ax.text(pos[0], pos[1], str(j), fontsize=fs, c='r')
 plt.savefig(os.path.join(img_path, 'ref_annotated.png'), bbox_inches='tight')
-#plt.show()
 plt.close();
 
 #### Housekeeping data ###
@@ -325,6 +326,7 @@ logger.info('Done!')
 
 pf = config.plot_freq # plot frequency / stamp save frequency
 
+# initialise real-time plot
 if config.real_time_plot is True:
 
     fig = plt.figure(figsize=(2, 2))
@@ -382,12 +384,12 @@ batches = config.batches
 
 ### scene change automation ####
 NEW_SCENE = False
-med_stamp1_fluxes = [] # list of historical stamp1 fluxes
-med_stamp2_fluxes = [] # list of historical stamp2 fluxes
+med_stamp1_fluxes, med_stamp2_fluxes = [], [] # list of historical stamp median fluxes
 candidate_change = [] # candidate change events
 change_counter = 0 # initialise change_counter (checks for consecutive signficant deviations from historical median flux)
 for batch in range(batches):
 
+    # if runnning software offline, load the test imagery as if being acquired by camera during a live acquisition
     if ONLINE is False:
         file_name = os.path.join(path, ordered_files[batch])
         logger.info('Loading data from %s' % file_name)
@@ -395,23 +397,20 @@ for batch in range(batches):
         print(img_coll.shape, img_coll.dtype)
         logger.info('Done!')
 
+    # time batch completion
     t0_batch = time.perf_counter()
 
     N = config.N # total number of exposures to acquire per batch
 
-    # generate array to store results
+    # generate arrays to store photometry and background measurements
     photometry = np.zeros((N, len(positions)))
-    times = np.zeros(N)
-    texps = np.zeros(N) # housekeeping... useful diagnostic
-    seqs = np.zeros(N) # housekeeping... sequence number
     sky_lvls = np.zeros((N, len(bb_pos)))
-    processing_times = np.zeros(N)
 
-    n = 0 # counter for number of acquired frames
+    # generate arrays to store diagnostic/housekeeping data
+    times, texps, seqs, processing_times = np.zeros(N), np.zeros(N), np.zeros(N), np.zeros(N)
 
-    ## initialise arrays to hold stamps for real-time plotting
-    stamp1s = np.zeros((pf, 2 * ry, 2 * rx)) # source to splot
-    stamp2s = np.zeros((pf, 2 * ry, 2 * rx)) # other source to track
+    ## initialise the arrays to hold the stamps for real-time plotting and automated scene change detection
+    stamp1s, stamp2s = np.zeros((pf, 2 * ry, 2 * rx)), np.zeros((pf, 2 * ry, 2 * rx))
     stamp_count = 0
 
     ## initialise array for autoguiding stamp
@@ -419,6 +418,7 @@ for batch in range(batches):
         autoguide_stamps = np.zeros((pf, config.ag_stamp_size, config.ag_stamp_size))
         ag_r = int(config.ag_stamp_size / 2)
 
+    n = 0 # counter for number of acquired frames
     while n < N:
 
         try:
@@ -440,12 +440,10 @@ for batch in range(batches):
                 data = frame[0]['pixel_data']
 
             else:
-                # locate appropriate file - batch equivalent to imaging stack in this instance
-                #file_name = os.path.join(path, ordered_files[batch])
-                #data = MultiImage(file_name)[n] # load the nth image in the stack/batch
+                # pull the data (offline)
                 data = img_coll[n]
 
-                # apply rotationn or integer shifts to create a "New" scene
+                # automated scene change detection tests: apply rotationn or integer shifts to create a "New" scene
                 if SCENE == 0 and batch >= 6:
                     #data = np.flip(data)
                     data = np.random.normal(0,1, data.shape)
@@ -456,7 +454,7 @@ for batch in range(batches):
                 elif SCENE == 2:
                     data = shift(data, (xshift, yshift), order=0, cval=np.median(data))
 
-            ### The workhorse ####
+            ### Time the workhorse ####
             tproc = time.perf_counter()
 
             # aperture photometry and sky region levels
@@ -471,9 +469,8 @@ for batch in range(batches):
             photometry[n] = phot
             sky_lvls[n] = skys
 
-            # compute processing time
-            proc_time = 1000 * (time.perf_counter() - tproc)
-            processing_times[n] = proc_time
+            # compute processing time [ms]
+            processing_times[n] = 1000 * (time.perf_counter() - tproc)
 
             ## cache source stamps
             stamp1s[stamp_count] = data[positions[s1][1] - ry : positions[s1][1] + ry, positions[s1][0] - rx : positions[s1][0] + rx]
@@ -485,17 +482,17 @@ for batch in range(batches):
 
             stamp_count += 1
 
+            ## hold processing for real time plotting and auotmated scene change detection
             if n % (pf - 1) == 0 and n != 0 and config.real_time_plot is True:
 
+                # check plotting overhead
                 t0_image = time.perf_counter()
 
-                # plot (processed) image sub-stamps
+                # process the tracked source stamps
                 if config.USE_CALIBRATION_FRAMES is True:
-                    stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
-                    stamp2 = imageproc.proc(imageproc.time_average(stamp2s), dark_stamps[s2], flat_stamps[s2])
+                    stamp1, stamp2 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1]), imageproc.proc(imageproc.time_average(stamp2s), dark_stamps[s2], flat_stamps[s2])
                 else:
-                    stamp1 = imageproc.time_average(stamp1s)
-                    stamp2 = imageproc.time_average(stamp2s)
+                    stamp1, stamp2 = imageproc.time_average(stamp1s), imageproc.time_average(stamp2s)
 
                 ## compare stamp_flux to historial stamp fluxes ##
                 stamp1_flux, stamp2_flux, = np.sum(stamp1), np.sum(stamp2) # time-averaged stamp flux
@@ -509,33 +506,34 @@ for batch in range(batches):
                     if stamp1_flux / ap_sky_lvl < config.scene_change_sky_thresh and stamp2_flux / ap_sky_lvl < config.scene_change_sky_thresh:
                         candidate_change.append(change_counter)
                         logger.info('Estimated source aperture sky flux: %.2f' % ap_sky_lvl)
+                        logger.info('Estimated flux of source %d: %.2f' % (s1, stamp1_flux))
+                        logger.info('Estimated flux of source %d: %.2f' % (s2, stamp2_flux))
                         logger.info('The ratio of the measured flux of source %d and the estimated sky flux of the aperture is %.2f' % (s1, stamp1_flux / ap_sky_lvl))
                         logger.info('The ratio of the measured flux of source %d and the estimated sky flux of the aperture is %.2f' % (s2, stamp2_flux / ap_sky_lvl))
                     # Criterion 2: Are there signficant changes in measured flux for the two tracked sources?
                     elif stamp1_flux < (stamp1_flux_hist - config.scene_change_flux_thresh * stamp1_flux_std) or stamp1_flux > (stamp1_flux_hist + config.scene_change_flux_thresh * stamp1_flux_std):
                         if stamp2_flux < (stamp2_flux_hist - config.scene_change_flux_thresh * stamp2_flux_std) or stamp2_flux > (stamp2_flux_hist + config.scene_change_flux_thresh * stamp2_flux_std):
                             candidate_change.append(change_counter)
-                            logger.info('Candidate change event detected...')
-                            logger.info('Significant deviations from baseline fluxes for sources %d and %d' % (s1, s2))
                             stamp1_sigma, stamp2_sigma = (stamp1_flux - stamp1_flux_hist) / stamp1_flux_std, (stamp2_flux - stamp2_flux_hist) / stamp2_flux_std
+                            logger.info('Significant deviations from baseline fluxes for sources %d and %d' % (s1, s2))
                             logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s1, stamp1_sigma))
                             logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s2, stamp2_sigma))
 
-                    # check for consecutive change flags
+                    # check for consecutive change flags; only if there's consistently flagged change do we abort the run
                     if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
                         NEW_SCENE = True
+
+                # update change_counter
+                change_counter += 1
 
                 # add med to list of historical med fluxes
                 med_stamp1_fluxes.append(stamp1_flux)
                 med_stamp2_fluxes.append(stamp2_flux)
 
-                # update change_counter
-                change_counter += 1
+                # save the plotted source stamp as a stamp.fits file
+                save_numpy_as_fits(stamp1, os.path.join(fits_path, 'source_%d.fits' % s1))
 
-                img1.set_data(stamp1.astype(float) ** (pow))
-                save_numpy_as_fits(stamp1, os.path.join(fits_path, 'stamp1.fits'))
-
-                # autoguiding
+                ## autoguiding
                 if config.autoguide is True:
                     # if temp.fits doesn't exist in share directory, write it
                     try:
@@ -544,45 +542,24 @@ for batch in range(batches):
                         ag_stamp = np.mean(autoguide_stamps, axis=0)
                         save_numpy_as_fits(ag_stamp, os.path.join(config.ag_share_path, 'temp.fits'))
 
-
                 ## reinitialise arrays to hold stamps for real-time plotting and scene change decisions
-                stamp1s = np.zeros((pf, 2 * ry, 2 * rx))
-                stamp2s = np.zeros((pf, 2 * ry, 2 * rx))
-                stamp_count = 0
+                stamp1s, stamp2s = np.zeros((pf, 2 * ry, 2 * rx)), np.zeros((pf, 2 * ry, 2 * rx))
+                stamp_count = 0 # reset stamp count
 
-                # restore background
-                fig.canvas.restore_region(ax1background)
-
-                # redraw just the points
-                ax1.draw_artist(img1)
-
-                # fillin the axes rectangle
-                fig.canvas.blit(ax1.bbox)
-
+                ## plot the source stamp (auto scaled for better viewing)
+                img1.set_data(stamp1.astype(float) ** (pow))
+                fig.canvas.restore_region(ax1background) # restore background
+                ax1.draw_artist(img1) # redraw just the updated data
+                fig.canvas.blit(ax1.bbox) # fillin the axes rectangle
                 fig.canvas.flush_events()
-
                 logger.info('Time taken to render figures [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
 
-            elif n % (pf - 1) == 0 and n != 0 and config.real_time_plot is False:
-
-                # just save (processed) image sub-stamps
-                t0_image = time.perf_counter()
-                if config.USE_CALIBRATION_FRAMES is True:
-                    stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
-                else:
-                    stamp1 = imageproc.time_average(stamp1s)
-                save_numpy_as_fits(stamp1, os.path.join(fits_path, 'stamp1.fits'))
-
-                ## reinitialise arrays to hold stamps for saving time averages
-                stamp1s = np.zeros((pf, 2 * ry, 2 * rx))
-                stamp2s = np.zeros((pf, 2 * ry, 2 * rx))
-                stamp_count = 0
-                logger.info('Time to save the image stamp [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
-
+            # update the image no. counter
             n += 1
 
-        except ValueError:
-            logging.debug('ValueError!!!')
+        except Exception as e:
+            print(e)
+            logging.debug(e)
             continue
 
         # if the scene has changed, kill the script
@@ -591,7 +568,6 @@ for batch in range(batches):
             sys.exit()
 
     ## save results
-    #ts = time.perf_counter()
     tbatch = time.perf_counter() - t0_batch
     logger.info('Completed batch %d', batch)
     logger.info('Data rate [Hz]: %d', round(N / tbatch))
@@ -603,18 +579,30 @@ for batch in range(batches):
     np.save(os.path.join(phot_path, 'times_batch%d.npy' % batch), times)
     np.save(os.path.join(phot_path, 'texps_batch%d.npy' % batch), texps)
     np.save(os.path.join(phot_path, 'seqs_batch%d.npy' % batch), seqs)
-    tsave = time.perf_counter() - t0_save
-    logger.info('Time to save batch data [ms]: %.3f', 1000 * tsave)
-
+    logger.info('Time to save batch data [ms]: %.3f', 1000 * (time.perf_counter() - t0_save))
 
 if ONLINE is True:
     # return camera to normal state
     cam.finish()
-    logger.info('Finished live acquistion.')
-
-    logger.info('Closing camera...')
+    logger.info('Finished live acquistion. Closing the camera...')
     cam.close()
     logger.info('Camera closed.')
-
 else:
     logger.info('Finished offline test run.')
+
+'''
+elif n % (pf - 1) == 0 and n != 0 and config.real_time_plot is False:
+
+    # just save (processed) image sub-stamps
+    t0_image = time.perf_counter()
+    if config.USE_CALIBRATION_FRAMES is True:
+        stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
+    else:
+        stamp1 = imageproc.time_average(stamp1s)
+    save_numpy_as_fits(stamp1, os.path.join(fits_path, 'stamp1.fits'))
+
+    ## reinitialise arrays to hold stamps for saving time averages
+    stamp1s, stamp2s = np.zeros((pf, 2 * ry, 2 * rx)), np.zeros((pf, 2 * ry, 2 * rx))
+    stamp_count = 0
+    logger.info('Time to save the image stamp [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
+'''
