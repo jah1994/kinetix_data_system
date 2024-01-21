@@ -479,7 +479,6 @@ for batch in range(batches):
             stamp1s[stamp_count] = data[positions[s1][1] - ry : positions[s1][1] + ry, positions[s1][0] - rx : positions[s1][0] + rx]
             stamp2s[stamp_count] = data[positions[s2][1] - ry : positions[s2][1] + ry, positions[s2][0] - rx : positions[s2][0] + rx]
 
-
             # cache autoguide stamp
             if config.autoguide is True:
                 autoguide_stamps[stamp_count] = data[positions[s1][1] - ag_r : positions[s1][1] + ag_r, positions[s1][0] - ag_r : positions[s1][0] + ag_r]
@@ -498,33 +497,33 @@ for batch in range(batches):
                     stamp1 = imageproc.time_average(stamp1s)
                     stamp2 = imageproc.time_average(stamp2s)
 
+                ## compare stamp_flux to historial stamp fluxes ##
+                stamp1_flux, stamp2_flux, = np.sum(stamp1), np.sum(stamp2) # time-averaged stamp flux
+                stamp1_flux_hist, stamp2_flux_hist = np.median(med_stamp1_fluxes), np.median(med_stamp2_fluxes) # historical median
+                stamp1_flux_std, stamp2_flux_std = mad_std(med_stamp1_fluxes), mad_std(med_stamp2_fluxes) # historicdal MAD scaled to std
 
-                # compare stamp_flux to historial stamp fluxes
-                stamp1_flux = np.sum(stamp1) # time-averaged stamp flux
-                stamp2_flux = np.sum(stamp2) # time-averaged stamp flux
-
-                stamp1_flux_hist = np.median(med_stamp1_fluxes) # historical median
-                stamp2_flux_hist = np.median(med_stamp2_fluxes) # historical median
-
-                stamp1_flux_std = mad_std(med_stamp1_fluxes) # historicdal MAD scaled to std
-                stamp2_flux_std = mad_std(med_stamp2_fluxes) # historicdal MAD scaled to std
-
+                ### SCENE CHANGE CRITERIA ###
                 if len(med_stamp1_fluxes) > config.burn_in and len(med_stamp2_fluxes) > config.burn_in:
-                    if stamp1_flux < (stamp1_flux_hist - config.scene_change_threshold * stamp1_flux_std) or stamp1_flux > (stamp1_flux_hist + config.scene_change_threshold * stamp1_flux_std):
-                        if stamp2_flux < (stamp2_flux_hist - config.scene_change_threshold * stamp2_flux_std) or stamp2_flux > (stamp2_flux_hist + config.scene_change_threshold * stamp2_flux_std):
+                    # Crietrion 1: Is the measured flux of the two tracked sources comparable to the measured background flux
+                    ap_sky_lvl = ((2 * rx) * (2 * ry)) * (np.median(sky_lvls[sky_lvls != 0]))
+                    if stamp1_flux / ap_sky_lvl < config.scene_change_sky_thresh and stamp2_flux / ap_sky_lvl < config.scene_change_sky_thresh:
+                        candidate_change.append(change_counter)
+                        logger.info('Estimated source aperture sky flux: %.2f' % ap_sky_lvl)
+                        logger.info('The ratio of the measured flux of source %d and the estimated sky flux of the aperture is %.2f' % (s1, stamp1_flux / ap_sky_lvl))
+                        logger.info('The ratio of the measured flux of source %d and the estimated sky flux of the aperture is %.2f' % (s2, stamp2_flux / ap_sky_lvl))
+                    # Criterion 2: Are there signficant changes in measured flux for the two tracked sources?
+                    elif stamp1_flux < (stamp1_flux_hist - config.scene_change_flux_thresh * stamp1_flux_std) or stamp1_flux > (stamp1_flux_hist + config.scene_change_flux_thresh * stamp1_flux_std):
+                        if stamp2_flux < (stamp2_flux_hist - config.scene_change_flux_thresh * stamp2_flux_std) or stamp2_flux > (stamp2_flux_hist + config.scene_change_flux_thresh * stamp2_flux_std):
                             candidate_change.append(change_counter)
                             logger.info('Candidate change event detected...')
                             logger.info('Significant deviations from baseline fluxes for sources %d and %d' % (s1, s2))
                             stamp1_sigma, stamp2_sigma = (stamp1_flux - stamp1_flux_hist) / stamp1_flux_std, (stamp2_flux - stamp2_flux_hist) / stamp2_flux_std
                             logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s1, stamp1_sigma))
                             logger.info('Measured brightness of source %d has changed by %.2f sigmas' % (s2, stamp2_sigma))
-                            ap_sky_lvl = ((2 * rx) * (2 * ry)) * (np.median(sky_lvls[sky_lvls != 0]))
-                            print('Sky aperture background sum (med):', ap_sky_lvl)
-                            print('stamp1_flux / ap_sky_lvl:', stamp1_flux / ap_sky_lvl)
-                            print('stamp2_flux / ap_sky_lvl:', stamp2_flux / ap_sky_lvl)
-                            # check for consistent deviation from baseline?
-                            if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
-                                NEW_SCENE = True
+
+                    # check for consecutive change flags
+                    if len(candidate_change) >= config.consecutive and ((candidate_change[-1] - candidate_change[-config.consecutive]) == config.consecutive - 1) == True:
+                        NEW_SCENE = True
 
                 # add med to list of historical med fluxes
                 med_stamp1_fluxes.append(stamp1_flux)

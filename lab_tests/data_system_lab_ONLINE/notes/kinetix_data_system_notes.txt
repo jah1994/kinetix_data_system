@@ -56,10 +56,12 @@ POSSIBLY ANALYSE THE PREVIOUS NIGHT'S WORTH OF DATA
 
 - airmass.org (moon positioning) (rich as cluster as possible)....
 
-# Other considerations:
+# TODO: OTHER "NEW_SCENE" CRITERION
 - How does it behave when the telescope "slews"? Difficult to test on my end. Maybe something simple like
 standard deviations from measured background level? / set batch size to be small?? / take another ref exposure just before
 the run starts and compare brightness and position changes????
+	- Implemented relative brightness comparison between the expected sky background of a source aperture,
+	and the measured flux of the two tracked sources
 
 # TODO: better file management after Ctrl-C - separate "run" directories to ensure no overwrites
 - Each run generates a unique directory, ordered like "RUN_0", "RUN_1" etc. within each "SCENE_0", "SCENE_1" etc. directories

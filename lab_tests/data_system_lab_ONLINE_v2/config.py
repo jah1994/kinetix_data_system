@@ -53,7 +53,8 @@ pow = 2 # power-law scaling of real time plotted stamps
 ##### SCENE CHANGE CONTROL - Decisions made at the frequency of plot_freq ############
 burn_in = 3 # how many median fluxes to consider before switching the scene (establish baseline flux)
 consecutive = 3 # how many consecutive median fluxes show significant change from baseline before making a switch
-scene_change_threshold = 10 # signifance of change
+scene_change_sky_thresh = 2 # ratio of source flux and sky flux
+scene_change_flux_thresh = 10 # signifance of flux change in sigmas
 ######################################################################################
 
 #### AUTOGUIDE ##############
