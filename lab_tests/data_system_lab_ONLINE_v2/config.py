@@ -2,7 +2,7 @@
 ## For testing purposes, it is useful to run the software offline on pre-acquired data
 ## ONLINE = True : Live mode acquistion with Kinetix
 ## ONLINE = False : (Testing onlyl) Run offline on pre-acquired imaging data
-online = False
+online = True
 
 ## OFFLINE only ##
 offline_path = "D:/offline_tests/data" # path to test data in offline mode only
@@ -51,9 +51,9 @@ pow = 2 # power-law scaling of real time plotted stamps
 
 
 ##### SCENE CHANGE CONTROL - Decisions made at the frequency of plot_freq ############
-burn_in = 3 # how many median fluxes to consider before switching the scene (establish baseline flux)
-consecutive = 3 # how many consecutive median fluxes show significant change from baseline before making a switch
-scene_change_sky_thresh = 2 # ratio of source flux and sky flux
+burn_in = 3 # how many data batches to collect before switching the scene (establishes baseline flux for one of the scene change criteria)
+consecutive = 3 # how many consecutive scene change flags before making a switch
+scene_change_sky_thresh = 2 # mininum allowable ratio of source flux / sky flux
 scene_change_flux_thresh = 10 # signifance of flux change in sigmas
 ######################################################################################
 

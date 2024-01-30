@@ -75,6 +75,18 @@ new bounds = [(0, 1e9), (1, 30), (1, 30), (-1e9, 1e9), (1, nx), (1, ny)]
 # TODO: HEURISTIC ASSESSMENT OF PSF MODEL
 - if the 2d gaussian x/y axis length is >= 2 of the y/x length, abort run, and reacquire a new reference image
 
+#########################################################
+- TESTS (30/01/2024)
+
+- check new frame rate associated with the additional ops overhead
+ - how does this depend on the batch size?
+- trial appropriate scene change thresholds for both criteria
+ - n.b. the sky flux / source flux criterion sensitive to aperture size
+- check behaviour of new reference frame quality check(s)
+
+Main issue flagged from previous test was that of the quality of the reference exposure, and the associated PSF model
+	- What else can we do to ensure, as best as we can, that these procedures generalise well?
+
 ##########################################################
 ###### package updates and other etc. ####################
 
@@ -522,4 +534,3 @@ Downloading pyvo-1.4.2-py3-none-any.whl (888 kB)
    ---------------------------------------- 888.9/888.9 kB 9.3 MB/s eta 0:00:00
 Installing collected packages: pyvo, astroquery
 Successfully installed astroquery-0.4.7.dev8893 pyvo-1.4.2
-
