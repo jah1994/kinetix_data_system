@@ -503,7 +503,7 @@ for batch in range(batches):
                 if len(med_stamp1_fluxes) > config.burn_in and len(med_stamp2_fluxes) > config.burn_in:
                     # Crietrion 1: Is the measured flux of the two tracked sources comparable to the measured background flux
                     ap_sky_lvl = ((2 * rx) * (2 * ry)) * (np.median(sky_lvls[sky_lvls != 0]))
-                    if stamp1_flux / ap_sky_lvl < config.scene_change_sky_thresh and stamp2_flux / ap_sky_lvl < config.scene_change_sky_thresh:
+                    if abs(stamp1_flux / ap_sky_lvl) < config.scene_change_sky_thresh and abs(stamp2_flux / ap_sky_lvl) < config.scene_change_sky_thresh:
                         candidate_change.append(change_counter)
                         logger.info('Estimated source aperture sky flux: %.2f' % ap_sky_lvl)
                         logger.info('Estimated flux of source %d: %.2f' % (s1, stamp1_flux))

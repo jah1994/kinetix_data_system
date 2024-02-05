@@ -87,6 +87,11 @@ new bounds = [(0, 1e9), (1, 30), (1, 30), (-1e9, 1e9), (1, nx), (1, ny)]
 Main issue flagged from previous test was that of the quality of the reference exposure, and the associated PSF model
 	- What else can we do to ensure, as best as we can, that these procedures generalise well?
 
+##### Test notes ####
+# in test, put abs() condition around 1st scene criterion
+# hot pixel "delta" functions in Speed mode
+# non integer exposure time causes frame-rate to exceed what's theoretically possible
+# still seeing that bias pattern like last time on site
 ##########################################################
 ###### package updates and other etc. ####################
 
