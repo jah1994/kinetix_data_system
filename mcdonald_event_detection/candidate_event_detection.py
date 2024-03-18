@@ -9,7 +9,6 @@ import time
 # Sensitivy or Speed mode
 MODE = 'Sensitivity'
 
-
 # search region is loc +- window
 # window is approx 6.25 seconds
 if MODE == 'Sensitivity':
@@ -27,7 +26,7 @@ snr_skip_thresh = 5
 candidate_snr_thresh = 5
 
 # where to save the results of the analysis
-OUT_PATH = "D:\McDonald_analysis"
+OUT_PATH = r"D:\McDonaldObs_Feb_2024\Analysis\Analysis_18th_Feb"
 
 # if OUT_PATH doesn't exist, make it
 if os.path.exists(OUT_PATH) == False:
@@ -35,23 +34,22 @@ if os.path.exists(OUT_PATH) == False:
 
 
 # make directory for the result .npy files if it doesn't exist
-result_dir = os.path.join(OUT_PATH, 'analysis', 'results')
-if os.path.exists(result_dir) == False:
-    os.makedirs(result_dir)
+#result_dir = os.path.join(OUT_PATH, 'Analysis', 'Analysis_16th_Feb')
+#if os.path.exists(result_dir) == False:
+#    os.makedirs(result_dir)
 
 
 # identify subdirectories containg the results of each run
-path_to_data = "E:\McDonald backups"
-subdirs = [s for d, s, f in os.walk(path_to_data)][0]
-subdirs = [s for s in subdirs if 'results' in s ] # filter out any other directories
+path_to_data = "D:\McDonaldObs_Feb_2024\Results_18th_Feb"
+subdirs = [d for d, s, f in os.walk(path_to_data) if 'photometry' in d]
 
-if MODE == 'Sensitivity':
-    subdirs = [s for s in subdirs if 'speed' not in s ] # CHANGE THIS TO TOGGLE BETWEEN SENSITIVY AND SPEED MODE DIRECTORIES
-elif MODE == 'Speed':
-    subdirs = [s for s in subdirs if 'speed' in s ]
-
-subdirs = [s for s in subdirs if 'rtp_M11' not in s ] # Many false positives in this one
-subdirs = [os.path.join(path_to_data, s) for s in subdirs]
+# filter directories to the specified camera mode
+subdirs_ = []
+for s in subdirs:
+    with open(os.path.join(s.split('photometry')[0], 'housekeeping.log'), 'r') as log_file:
+        if MODE in log_file.read():
+            subdirs_.append(s)
+subdirs = subdirs_
 
 print('Data directories to be analysed:')
 print(subdirs)
@@ -169,14 +167,13 @@ def gen_template_bank(dmin, dmax, tmin, tmax, del_d, del_t):
 
 # cycle over each results subdirectory
 for s in subdirs:
-
     print('Subdirectory:', s)
-
     # make a subdirectory for the figures if it doesn't exist
     # if the subdirectory is found, the analysis is assumed to have been already done
     try:
-        os.makedirs(os.path.join(OUT_PATH, 'analysis', 'figures', str(s.split("\\")[-1])), exist_ok=True)
-        os.makedirs(os.path.join(OUT_PATH, 'analysis', 'closeups', str(s.split("\\")[-1])), exist_ok=True)
+        os.makedirs(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'figures'), exist_ok=True)
+        os.makedirs(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'closeups'), exist_ok=True)
+        os.makedirs(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'results'), exist_ok=True)
     except FileExistsError:
         print('Results directory already exists... skipping')
         continue
@@ -228,7 +225,8 @@ for s in subdirs:
     plt.xlabel('log Flux [ADU]')
     plt.ylabel('log rms [ADU]')
     plt.grid()
-    plt.savefig(os.path.join(OUT_PATH, 'analysis/figures/' + str(s.split("\\")[-1]) + '/rms.png'), bbox_inches='tight')
+    #plt.savefig(os.path.join(OUT_PATH, 'analysis/figures/' + str(s.split("\\")[-1]) + '/rms.png'), bbox_inches='tight')
+    plt.savefig(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'figures', 'rms.png'), bbox_inches='tight')
     plt.close()
 
     # systematic variation is a funtion of flux, so normalise out
@@ -241,7 +239,8 @@ for s in subdirs:
     plt.xlabel('Exposure number')
     plt.grid()
     plt.ylim(-0.3, 1.5)
-    plt.savefig(os.path.join(OUT_PATH, 'analysis/figures/' + str(s.split("\\")[-1]) + '/norm.png'), bbox_inches='tight')
+    #plt.savefig(os.path.join(OUT_PATH, 'analysis/figures/' + str(s.split("\\")[-1]) + '/norm.png'), bbox_inches='tight')
+    plt.savefig(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'figures', 'norm.png'), bbox_inches='tight')
     plt.close()
 
 
@@ -279,7 +278,8 @@ for s in subdirs:
         plt.legend()
         plt.grid()
         plt.ylim(1 - 10*mad_std(lc_), 1 + 10*mad_std(lc_))
-        plt.savefig(os.path.join(OUT_PATH, 'analysis/figures/' + str(s.split("\\")[-1]) + '/' + str(i) + '.png'))
+        #plt.savefig(os.path.join(OUT_PATH, 'analysis/figures/' + str(s.split("\\")[-1]) + '/' + str(i) + '.png'))
+        plt.savefig(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'figures', str(i) + '.png'), bbox_inches='tight')
         plt.close()
 
         print('Starting matched-filtering...')
@@ -292,13 +292,16 @@ for s in subdirs:
         # help prevent doubling up of identical events
         locs = []
 
-        # restrict results to the current source
-        try:
-            res_ = np.array(res)[np.array(res)[:,0] == i]
-        except IndexError:
+        # if no peaks found, skip
+        if len(res) == 0:
             continue
 
-        if len(res_) == 0:
+        # restrict results to the current source
+        try:
+            res_ = np.array(res, dtype=object)
+            res_ = res_[res_[:,0] == i]
+        except Exception as e:
+            print(e)
             continue
 
         # identify peak SNR in a given window
@@ -386,17 +389,20 @@ for s in subdirs:
             plt.xlabel('$t$ [Exposure number]')
             plt.ylabel('$I(t)$')
 
-            plt.savefig(os.path.join(OUT_PATH, 'analysis/closeups/' + str(s.split("\\")[-1]) + '/' + str(i) + '_' + str(loc_max) + '.png'))
+            #plt.savefig(os.path.join(OUT_PATH, 'analysis/closeups/' + str(s.split("\\")[-1]) + '/' + str(i) + '_' + str(loc_max) + '.png'))
+            plt.savefig(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'closeups', str(i) + '_' + str(loc_max) + '.png'))
             plt.close()
 
         res_local_peaks.append([i, snr_maxs, loc_check, t_ids])
 
     # convert results to an array type
-    res = np.array(res)
+    res = np.array(res, dtype=object)
     print('Results array shape:', res.shape)
-    np.save(os.path.join(result_dir, str(s.split("\\")[-1]) + '.npy'), res)
+    #np.save(os.path.join(result_dir, str(s.split("\\")[-1]) + '.npy'), res)
+    np.save(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'results', 'res.npy'), res)
 
     # and also save the peak information for quick referencing
-    res_local_peaks = np.array(res_local_peaks)
+    res_local_peaks = np.array(res_local_peaks, dtype=object)
     print('Local peak results array shape:', res_local_peaks.shape)
-    np.save(os.path.join(result_dir, str(s.split("\\")[-1])  + '_peaks.npy'), res_local_peaks)
+    #np.save(os.path.join(result_dir, str(s.split("\\")[-1])  + '_peaks.npy'), res_local_peaks)
+    np.save(os.path.join(OUT_PATH, s.split("\\")[3], s.split("\\")[4], 'analysis', 'results', 'res_local_peaks.npy'), res_local_peaks)
