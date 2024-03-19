@@ -5,7 +5,7 @@ import numpy as np
 from astropy.stats import mad_std
 import matplotlib.pyplot as plt
 import time
-from wpca import PCA, WPCA # JVDP's weighted PCA library
+from wpca import WPCA # JVDP's weighted PCA library
 ########################### Config ############################
 # Sensitivy or Speed mode
 MODE = 'Sensitivity'
@@ -14,16 +14,13 @@ MODE = 'Sensitivity'
 IN_PATH = "D:\McDonaldObs_Feb_2024\Results_18th_Feb"
 
 # where to save the results of the analysis
-OUT_PATH = r"D:\McDonaldObs_Feb_2024\Analysis_PCA\Analysis_18th_Feb"
+OUT_PATH = r"D:\McDonaldObs_Feb_2024\Analysis_PCA\Analysis_18th_Feb_v2"
 
 # number of PCA components to be used by the model
 N_COMPONENTS = 8
 
 # size of chunks for which to slice up the light curve to fit it into computer memory
-CHUNK_SIZE = 10000
-
-# miminum comparison star snr
-comp_snr_thresh = 10
+CHUNK_SIZE = 2500
 
 # skip light curves whose SNR is less than this (where there's no good chance of reliably recovering occultations)
 snr_skip_thresh = 5
@@ -202,6 +199,31 @@ for s in subdirs:
     T = X_norm.shape[1]
     chunks = np.concatenate((np.arange(0, T, CHUNK_SIZE), np.array([T])))
     residuals = np.ones(X_norm.shape) # destination array for the residuals
+
+    print('Fitting PCA model...')
+    for source in range(0,len(X_norm)):
+        print('Source %d / %d' % (source + 1, len(X_norm)))
+        for i in tqdm(range(len(chunks)-1)):
+
+            # slice out data chunk
+            X_norm_ = X_norm[:,chunks[i]:chunks[i+1]]
+
+            # define weights as the inverse of the (normalised) time series variance
+            weights = 1/np.var(X_norm_, axis=1)
+            weights = weights[:,None] * np.ones(X_norm_.shape)
+            weights[source] = 1e-6 * np.ones(weights[source].shape) # weight out the target star (using 0s result in Singular matrix error)
+            pca = WPCA(n_components=N_COMPONENTS).fit(X_norm_, weights=weights) # fit pca model
+            Y = pca.fit_reconstruct(X_norm_, weights=weights) # make predictions
+
+            # compute residuals (i.e. "detrended" time series)
+            residuals_ = X_norm_[source] - Y[source]
+            residuals_ += 1 # shift time series such that median I(t) is 1
+
+            # slice reiduals into the destination array
+            residuals[source,chunks[i]:chunks[i+1]] = residuals_
+    print('Done!')
+
+    '''
     print('Fitting PCA model...')
     for i in tqdm(range(len(chunks)-1)):
 
@@ -221,6 +243,7 @@ for s in subdirs:
         # slice reiduals into the destination array
         residuals[:,chunks[i]:chunks[i+1]] = residuals_
     print('Done!')
+    '''
     ########################################################################
 
     ## generate a template bank of candidate occultation signals
