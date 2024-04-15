@@ -11,10 +11,10 @@ from wpca import WPCA # JVDP's weighted PCA library
 MODE = 'Sensitivity'
 
 # path to data (i.e. the photometric time series)
-IN_PATH = "D:\McDonaldObs_Feb_2024\Results_18th_Feb"
+IN_PATH = "D:\McDonaldObs_Feb_2024\Results_20th_Feb"
 
 # where to save the results of the analysis
-OUT_PATH = r"D:\McDonaldObs_Feb_2024\Analysis_PCA\Analysis_18th_Feb_v2"
+OUT_PATH = r"D:\McDonaldObs_Feb_2024\Analysis_PCA\Analysis_20th_Feb_v2"
 
 # number of PCA components to be used by the model
 N_COMPONENTS = 8
