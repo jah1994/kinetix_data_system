@@ -2,20 +2,19 @@
 ## For testing purposes, it is useful to run the software offline on pre-acquired data
 ## ONLINE = True : Live mode acquistion with Kinetix
 ## ONLINE = False : (Testing onlyl) Run offline on pre-acquired imaging data
-online = True
+online = False
 
 ## OFFLINE only ##
 offline_path = "D:/offline_tests/data" # path to test data in offline mode only
 offline_ref = "M2.fits" # reference image in the offline_path directory to be used in offline mode
 
 # file out path
-out_path = "C:/Users/rgomer/data_system_lab_ONLINE_v2/Results/Results_19th_Feb/"
+out_path = "D:/offline_tests/" # "C:/Users/rgomer/data_system_lab_ONLINE_v2/Results/Results_19th_Feb/"
 
 # Kinetix mode
 sensitivity = True
 dynamic = False
 speed = False
-
 
 ##### ONLINE only ####
 ref_exp_time = 5000 # [ms] the exposure time for capturing the reference image
@@ -23,13 +22,13 @@ exp_time = 12 # [ms] live feed acquisition mode exposure time
 buffer_count = 100 # [images] the maximum number of frames allowed in the circular FIFO buffer
 ###################
 
-batches = 1000 # 10000 (Speed mode) 1000 (Sensitivity mode) # number of data batches: total number of images processed = batches * N
-N = 500 # 2000 (Sensitivity mode) 500 (Sensitivity mode) # total number of exposures to acquire per batch
+batches = 9 # 10000 (Speed mode) 1000 (Sensitivity mode) # number of data batches: total number of images processed = batches * N
+N = 104 # 2000 (Sensitivity mode) 500 (Sensitivity mode) # total number of exposures to acquire per batch
 
 # calibration file paths
 USE_CALIBRATION_FRAMES = True
-flat = "C:/Users/rgomer/data_system_lab_ONLINE_v2/calibration_images/master_flat_Sensitivity.npy"
-dark = "C:/Users/rgomer/data_system_lab_ONLINE_v2/calibration_images/master_dark_Sensitivity_12ms.npy"
+flat = "D:/offline_tests/data/master_flat_3200.npy" # "C:/Users/rgomer/data_system_lab_ONLINE_v2/calibration_images/master_flat_Sensitivity.npy"
+dark = "D:/offline_tests/data/master_dark_3200.npy" # "C:/Users/rgomer/data_system_lab_ONLINE_v2/calibration_images/master_dark_Sensitivity_12ms.npy"
 
 r0 = 30 # initial guess at stamp radii (used to specify stamp size to fit PSF model)
 nsigma = 2.5 # apeture stamp radii will be nsigma * sigma
@@ -47,9 +46,8 @@ nbboxes = 8 # maximum number of background boxes to generate
 bbox_size = 128 # single axis size in pixels of square background boxes
 
 real_time_plot = True # toggle whether to plot output in real time
-plot_freq = 250 # 1000 (Speed mode) 250 (Sensitivity mode) # [images] how frequent to update the real-time plotting / save the stamp data
+plot_freq = 100 # 1000 (Speed mode) 250 (Sensitivity mode) # [images] how frequent to update the real-time plotting / save the stamp data
 pow = 2 # power-law scaling of real time plotted stamps
-
 
 ##### SCENE CHANGE CONTROL - Decisions made at the frequency of plot_freq ############
 burn_in = 3 # how many data batches to collect before switching the scene (establishes baseline flux for one of the scene change criteria)
@@ -61,7 +59,7 @@ hang_time = 1 # [s] time to wait before reacquiring data after a run has been ab
 ######################################################################################
 
 #### AUTOGUIDE ##############
-autoguide = True
+autoguide = False
 ag_stamp_size = 128
 ag_share_path = 'C:/Users/rgomer/Desktop/share'
 ag_dist_thresh = 4

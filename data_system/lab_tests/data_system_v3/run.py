@@ -1,23 +1,17 @@
-################# imports ########################
+# usage example in terminal
+#python run.py 0 0
+
+####################################### imports ################################
 import config # software configuration file
 import os
 import sys
 import logging
-
-# usage example in terminal
-#python run.py 0 0
-
-# run id and scene id
-RUN = int(sys.argv[1])
-SCENE = int(sys.argv[2])
-
 
 try:
     from pyvcam import pvc
     from pyvcam.camera import Camera
 except ModuleNotFoundError:
     print('Unable to locate PyVCAM module... camera functionality not available.')
-
 
 # custom image processing functions
 import imageproc
@@ -28,14 +22,9 @@ import time
 from astropy.stats import mad_std
 from astropy.io import fits
 from photutils.detection import find_peaks
-from skimage.io import MultiImage
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-##########################################################
-
-# only used for generating "New" scenes during offline testing
-from scipy.ndimage import shift
 
 # suppress numba warning re reflected lists
 if config.suppress_numba_warning is True:
@@ -43,14 +32,22 @@ if config.suppress_numba_warning is True:
     import warnings
     warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
+## offline imports
+from scipy.ndimage import shift # only used for generating "New" scenes during offline testing
+from skimage.io import MultiImage
+################################################################################
+
 # useful function to save numpy arrays to fits file format
 def save_numpy_as_fits(numpy_array, filename):
     hdu = fits.PrimaryHDU(numpy_array)
     hdul = fits.HDUList([hdu])
     hdul.writeto(filename, overwrite=True)
 
+# run id and scene id
+RUN = int(sys.argv[1])
+SCENE = int(sys.argv[2])
+
 # dubugging and housekeeping info written to housekeeping.log
-#out_path = config.out_path + '/RUN_' + str(RUN) + '/SCENE_' + str(SCENE)
 run_dir = os.path.join(config.out_path, 'RUN_' + str(RUN))
 out_path = os.path.join(run_dir, 'SCENE_' + str(SCENE))
 phot_path = os.path.join(out_path, 'photometry')
@@ -72,7 +69,7 @@ if os.path.exists(out_path) == False:
 else:
     print('Result directory already exists:', out_path)
 
-### initialise logger ###
+###################### initialise logger #######################################
 logger = logging.getLogger('housekeeping_logger')
 logger.setLevel('INFO')
 # create file handler which logs
@@ -89,24 +86,14 @@ fh.setFormatter(formatter)
 # add the handlers to logger
 logger.addHandler(ch)
 logger.addHandler(fh)
+################################################################################
 
-### Online vs offline mode ####
+#################### Online vs offline mode ####################################
 ## For testing purposes, it is useful to run the software offline on pre-acquired data
 ## ONLINE = True : Live mode acquistion with Kinetix
-## ONLINE = False : (Testing onlyl) Run offline on pre-acquired imaging data
+## ONLINE = False : (Testing onlyl) Run offline on pre-existing image data
 ONLINE = config.online
-
-## grab calibration frames - N.B. The calibration frames for the Kinetix must be acquired using the same mode of operation
-if config.USE_CALIBRATION_FRAMES is True:
-    logger.info('Loading calibration frames...')
-    flat = np.load(config.flat)
-    dark = np.load(config.dark)
-    logger.info('Found flat and dark frames.')
-else:
-    logger.info('USE_CALIBRATION_FRAMES is False')
-
 if ONLINE is True:
-
     ## Initialise and open the camera
     logger.info('Initialising the camera...')
     pvc.init_pvcam()                   # Initialize PVCAM
@@ -136,7 +123,6 @@ if ONLINE is True:
         cam.gain = 1
         logger.info('No camera mode specified, defaulting to Sensitivity mode...')
 
-
     ### Acquire reference frame - return source positions and aperture size
     ref_exp_time = config.ref_exp_time
     logger.info('Acquring reference frame with a %.2f second integration', (ref_exp_time / 1000))
@@ -147,10 +133,8 @@ else:
     logger.info('Running software offline...')
     ref = fits.getdata(os.path.join(config.offline_path, config.offline_ref))
     ref = ref.astype(np.float32) # change to numpy dtype
-
     # shifts to generate New scene for testing automated scene change detection
     xshift, yshift = 1000, 500
-
     # apply rotation
     if SCENE == 1:
         ref = np.flip(ref)
@@ -158,16 +142,21 @@ else:
     elif SCENE == 2:
         ref = shift(ref, (xshift, yshift), order=0, cval=np.median(ref))
     logger.info('Reference frame loaded.')
+################################################################################
 
-
+## grab calibration frames - N.B. The calibration frames for the Kinetix must be acquired using the same mode of operation
 if config.USE_CALIBRATION_FRAMES is True:
+    logger.info('Loading calibration frames...')
+    flat = np.load(config.flat)
+    dark = np.load(config.dark)
+    logger.info('Found flat and dark frames.')
     logger.info('Flat correcting and dark subtracting reference...')
     ref = imageproc.proc(ref, dark, flat)
     logger.info('Done!')
+else:
+    logger.info('USE_CALIBRATION_FRAMES is False')
 
 # compute estimates of the noise and sky level
-#sky = np.median(ref)
-#logger.info('Reference sky level [ADU]: %.3f', sky)
 sky, modal_sky_count = imageproc.compute_mode(ref.astype(int))
 logger.info('Reference modal sky level: %d [ADU] with %d counts' % (sky, modal_sky_count))
 ref -= sky # sky subtract
@@ -185,12 +174,11 @@ peaks = find_peaks(ref, threshold=10*std, box_size=config.r0, border_width=2*con
 # at least two sources should be detected, otherwise retry reference frame acquisition
 if peaks is None or len(peaks) <= 1:
     logger.info('An insufficient number of sources was detected, aborting run to reacquire a reference image.\n')
-    # close camera
     cam.close()
     logger.info('Camera closed, run aborted...\n')
     sys.exit()
 
-# sort peaks so that the brightest source is the first
+# sort peaks in descending order by brightness (i.e. the brightest source is first)
 peaks.sort('peak_value')
 peaks.reverse()
 
@@ -202,15 +190,13 @@ logger.info('sigma_x=%.3f, sigma_y=%.3f', sigma_x, sigma_y)
 logger.info('rx=%d, ry=%d:', rx, ry)
 
 ## heuristically assess the quality of the PSF model
-# test 1) (x,y) asymmetry
 if (rx / ry) >= config.sigma_ratio or (ry / rx) >= config.sigma_ratio:
     logger.info('The fitted PSF model is badly asymmetric... aborting run to reacquire a reference image.\n')
-    # close camera
     cam.close()
     logger.info('Camera closed, run aborted...\n')
     sys.exit()
 
-# match-filter reference with the PSF Model and normalise to generate a detection map
+# match-filter the reference image with the PSF Model and normalise to generate a source detection "map"
 if config.emp_detect is True:
     D_norm = imageproc.make_detection_map_empirical(ref, psf_model, std)
 else:
@@ -223,43 +209,55 @@ positions.sort('peak_value')
 positions.reverse() # sort so that the highest SNR star is first (Detection map is normalised by uncertainties)
 peaks = positions['peak_value'] # flux peaks
 
-####### Real Time plotting / Saving source stamps###
-# find sufficiently isolated bright star
+########## Source(s) for Autoguiding / Real Time plotting ######################
+# find sufficiently isolated bright stars
 min_dist = []
-for i,pos in enumerate(positions):
+for i, pos in enumerate(positions):
     xci, yci = pos['x_peak'], pos['y_peak']
     dists = []
-    for j,pos in enumerate(positions):
+    for j, pos in enumerate(positions):
         if i != j:
             xcj, ycj = pos['x_peak'], pos['y_peak']
             dists.append(np.sqrt((xci - xcj)**2 + (yci - ycj)**2))
     min_dist.append(min(dists))
 positions['closest_neighbour_distance [pix]'] = min_dist
+nsources = len(positions)
+logger.info('Detected sources: %d', nsources)
 
 # distance threshold - neighbouring star centroid outside of the aperture?
-# s1 will also be used for autoguiding if enabled, and by default ag_dist_thresh is set to 1, but can be increased as needed (e.g. bad seeing)
+# s1 will also be used for autoguiding if enabled, and by default ag_dist_thresh is set to 1, but can be increased as needed (e.g. due to bad seeing)
 dist_thresh = config.ag_dist_thresh * np.sqrt(rx**2 + ry**2)
 logger.info('Distance threshold: %.2f' % dist_thresh)
 S1, S2 = False, False
 for i,pos in enumerate(positions):
     if pos['closest_neighbour_distance [pix]'] >= dist_thresh and S1 is False:
         s1, S1 = i, True
-        logger.info('Tracking source %d' % s1)
+        logger.info('(S1) Tracking source %d' % s1)
         logger.info('Closest neighbour is %d pixels away' % int(pos['closest_neighbour_distance [pix]']))
     elif pos['closest_neighbour_distance [pix]'] >= dist_thresh and S1 is True:
         s2, S2 = i, True
-        logger.info('Tracking source %d' % s2)
+        logger.info('(S2) Tracking source %d' % s2)
         logger.info('Closest neighbour is %d pixels away' % int(pos['closest_neighbour_distance [pix]']))
         break
-###############################################
+# TODO: WHAT IF NO CANDIDATES FOUND FOR S1 AND S2?
+################################################################################
+
+################# Automated background region generation #######################
+# KDE of source positions, weighted by brightness, to allow a constrained search in sparsely populated regions
 positions = np.vstack((positions['x_peak'], positions['y_peak'])).T # numba doesn't like astropy tables
-nsources = len(positions)
-logger.info('Detected sources: %d', nsources)
+bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, bbox_size=config.bbox_size, N=config.nbboxes)
+nboxes = len(bb_pos)
+if nboxes == 0:
+    logger.info('No valid background boxes found... aborting run to reacquire a new reference image.\n')
+    cam.close()
+    logger.info('Camera closed, run aborted...\n')
+    sys.exit()
+logger.info('Number of background region boxes: %d', nboxes)
+################################################################################
 
-# plot Detection map and visually check detections look good
-ls = 15 # tick label size
-fs = 12 # text fontsize
-
+####### Plots, housekeeping data and JIT compilation ###########################
+# plot detection map to visually check detections look good
+ls, fs = 15, 12 # tick label size, text fontsize
 fig = plt.figure(figsize=(20, 20))
 ax = fig.add_subplot(111)
 ax.tick_params(axis='both', labelsize=ls)
@@ -269,26 +267,12 @@ im = ax.imshow(D_norm, origin='lower')
 cbar = ax.figure.colorbar(im, cax=cax)
 cbar.set_label('$D / \sigma_{D}$', fontsize=ls)
 cbar.ax.tick_params(labelsize=ls)
-#fig.colorbar(im, cax=cax, orientation='vertical')
 for p,pos in enumerate(positions):
     ax.text(pos[0], pos[1], str(p), fontsize=fs)
 plt.savefig(os.path.join(img_path, 'D_norm.png'), bbox_inches='tight') # save to disk for reference
-#plt.show();
 plt.close();
 
-### automated background region selection
-# KDE of source positions, weighted by brightness, to allow a constrained search in sparsely populated regions
-bb_pos, bb_rs = imageproc.background_boxes(positions, peaks, ref, rx, ry, img_path, bbox_size=config.bbox_size, N=config.nbboxes)
-nboxes = len(bb_pos)
-if nboxes == 0:
-    logger.info('No valid background boxes found... aborting run to reacquire a new reference image.\n')
-    # close camera
-    cam.close()
-    logger.info('Camera closed, run aborted...\n')
-    sys.exit()
-logger.info('Number of background region boxes: %d', nboxes)
-
-# plot template and visually check apertures look OK
+# plot annotated reference to visually check apertures and sky background boxes
 fig = plt.figure(figsize=(20, 20))
 ax = fig.add_subplot(111)
 ax.tick_params(axis='both', labelsize=ls)
@@ -303,28 +287,25 @@ for p,pos in enumerate(positions):
                                    width=2*rx, height=2*ry, fill=False,
                                    label=p))
     ax.text(pos[0], pos[1], str(p), fontsize=fs)
-
 for j, (pos, rs) in enumerate(zip(bb_pos, bb_rs)):
-
     ax.add_patch(patches.Rectangle(xy=(pos[0] - rs[0], pos[1] - rs[1]),
                                    width=2*rs[0], height=2*rs[1], fill=False, label=j, color='red'))
     ax.text(pos[0], pos[1], str(j), fontsize=fs, c='r')
 plt.savefig(os.path.join(img_path, 'ref_annotated.png'), bbox_inches='tight')
 plt.close();
 
-#### Housekeeping data ###
-np.save(os.path.join(phot_path, 'positions.npy'), positions) # save positions of sources
-np.save(os.path.join(phot_path, 'bb_pos.npy'), bb_pos) # save backbround box positions...
-np.save(os.path.join(phot_path, 'bb_rs.npy'), bb_rs) #... and their raddii
+# save source and sky background box positions
+np.save(os.path.join(phot_path, 'positions.npy'), positions)
+np.save(os.path.join(phot_path, 'bb_pos.npy'), bb_pos)
+np.save(os.path.join(phot_path, 'bb_rs.npy'), bb_rs)
 
-# generate calibration frame stamp_size
+# generate calibration frame stamps for each source aperture
 if config.USE_CALIBRATION_FRAMES is True:
     logger.info('Generating calibration frame stamps for the source apertures and sky background boxes...')
     dark_stamps, flat_stamps = imageproc.calibration_stamps(np.copy(dark), np.copy(flat), positions, rx, ry)
     sky_dark_stamps, sky_flat_stamps = imageproc.sky_calibration_stamps(np.copy(dark), np.copy(flat), bb_pos, bb_rs)
     logger.info('Done!')
 
-############ Live mode acquistion #################
 logger.info('JIT compiling functions...')
 if config.USE_CALIBRATION_FRAMES is True:
     phot = imageproc.fluxes_stamps(ref, dark_stamps, flat_stamps, positions, nsources, rx, ry)
@@ -334,21 +315,15 @@ else:
     skys = imageproc.sky_stamps_nocal(ref, nboxes, bb_pos, bb_rs)
 logger.info('Done!')
 
-pf = config.plot_freq # plot frequency / stamp save frequency
+pf = config.plot_freq # plot / stamp save frequency
 
-# initialise real-time plot
+# initialise real-time plotting
 if config.real_time_plot is True:
-
     fig = plt.figure(figsize=(2, 2))
-
-    # power-law rescaling of stamp data
-    pow = config.pow
-
-    ax1 = fig.add_subplot(1, 1, 1) # image
-
-    RX, RY = np.linspace(0, 2 * rx, num= 2 * rx), np.linspace(0, 2* ry, num= 2 * ry)
+    pow = config.pow # power-law rescaling of stamp data for better viewing
+    ax1 = fig.add_subplot(1, 1, 1)
+    RX, RY = np.linspace(0, 2 * rx, num = 2 * rx), np.linspace(0, 2* ry, num = 2 * ry)
     X, Y = np.meshgrid(RX, RY)
-
     if config.USE_CALIBRATION_FRAMES is True:
         minview = int(np.median(dark))
         maxview = minview + 100
@@ -357,15 +332,12 @@ if config.real_time_plot is True:
         maxview = minview + 1000
     img1 = ax1.imshow(X, cmap="Greys", vmin=minview, vmax=maxview, origin='lower')
     ax1.set_title('Source: %d' % s1)
-
     fig.canvas.draw()
-
-    # cache the background (blitting)
-    ax1background = fig.canvas.copy_from_bbox(ax1.bbox)
-
+    ax1background = fig.canvas.copy_from_bbox(ax1.bbox) # cache the background (blitting)
     plt.show(block=False)
+################################################################################
 
-
+######################### Data acquistion ######################################
 if ONLINE is True:
     ## setup a live mode acquistion - frames stored in buffer
     logger.info('Starting live mode acquistion...')
@@ -373,32 +345,29 @@ if ONLINE is True:
     logger.info('Exposure time [ms]: %f', exp_time)
     cam.start_live(exp_time=exp_time, buffer_frame_count=config.buffer_count, stream_to_disk_path=None)
     logger.info('Camera now collecting data...')
-
 else:
     ## offline mode - run on pre-acquired imaging data
     path = config.offline_path
     files = [f for d, s, f in os.walk(path)][0]
-
-    # order data files
-    ordered_files = []
+    ordered_files = []     # order data files
     scale = np.arange(0, 1000).astype(str)
     for s in scale:
         for f in files:
             if 'ss_stack' in f and '_' + s + '.tiff' in f:
                 ordered_files.append(f)
 
-t0 = time.perf_counter()
-
-# number of data batches: total number of images processed = batches * N
-batches = config.batches
-
-### scene change automation ####
+# initialise scene change criteria
 NEW_SCENE = False
 med_stamp1_fluxes, med_stamp2_fluxes = [], [] # list of historical stamp median fluxes
 candidate_change = [] # candidate change events
 change_counter = 0 # initialise change_counter (checks for consecutive signficant deviations from historical median flux)
-for batch in range(batches):
 
+# initialise performance counter
+t0 = time.perf_counter()
+
+# number of data batches: total number of images processed = batches * N
+batches = config.batches
+for batch in range(batches):
     # if runnning software offline, load the test imagery as if being acquired by camera during a live acquisition
     if ONLINE is False:
         file_name = os.path.join(path, ordered_files[batch])
@@ -410,11 +379,9 @@ for batch in range(batches):
     # time batch completion
     t0_batch = time.perf_counter()
 
-    N = config.N # total number of exposures to acquire per batch
-
     # generate arrays to store photometry and background measurements
-    photometry = np.zeros((N, len(positions)))
-    sky_lvls = np.zeros((N, len(bb_pos)))
+    N = config.N # total number of exposures to acquire per batch
+    photometry, sky_lvls = np.zeros((N, len(positions))), np.zeros((N, len(bb_pos)))
 
     # generate arrays to store diagnostic/housekeeping data
     times, texps, seqs, processing_times = np.zeros(N), np.zeros(N), np.zeros(N), np.zeros(N)
@@ -430,29 +397,15 @@ for batch in range(batches):
 
     n = 0 # counter for number of acquired frames
     while n < N:
-
         try:
-
             if ONLINE is True:
-                # oldest frame in buffer popped from the queue
-                frame = cam.poll_frame(copyData=False)
-
-                # store time exposure acquired
-                times[n] = time.perf_counter() - t0
-
-                # exptime (housekeeping)
-                texps[n] = frame[1]
-
-                # sequence number (housekeeping)
-                seqs[n] = frame[2]
-
-                # pull the data
-                data = frame[0]['pixel_data']
-
+                frame = cam.poll_frame(copyData=False) # oldest frame in buffer popped from the queue
+                times[n] = time.perf_counter() - t0 # store time exposure acquired
+                texps[n] = frame[1] # exptime (housekeeping)
+                seqs[n] = frame[2] # sequence number (housekeeping)
+                data = frame[0]['pixel_data'] # read the data
             else:
-                # pull the data (offline)
-                data = img_coll[n]
-
+                data = img_coll[n] # read the data (offline)
                 # automated scene change detection tests: apply rotationn or integer shifts to create a "New" scene
                 if SCENE == 0 and batch >= 6:
                     #data = np.flip(data)
@@ -464,7 +417,7 @@ for batch in range(batches):
                 elif SCENE == 2:
                     data = shift(data, (xshift, yshift), order=0, cval=np.median(data))
 
-            ### Time the workhorse ####
+            # initialise a performance counter for the image processing ####
             tproc = time.perf_counter()
 
             # aperture photometry and sky region levels
@@ -476,28 +429,23 @@ for batch in range(batches):
                 skys = imageproc.sky_stamps_nocal(data, nboxes, bb_pos, bb_rs)
 
             # store aperture photometry and sky background estimates
-            photometry[n] = phot
-            sky_lvls[n] = skys
+            photometry[n], sky_lvls[n] = phot, skys
 
             # compute processing time [ms]
             processing_times[n] = 1000 * (time.perf_counter() - tproc)
 
-            ## cache source stamps
+            # cache source stamps
             stamp1s[stamp_count] = data[positions[s1][1] - ry : positions[s1][1] + ry, positions[s1][0] - rx : positions[s1][0] + rx]
             stamp2s[stamp_count] = data[positions[s2][1] - ry : positions[s2][1] + ry, positions[s2][0] - rx : positions[s2][0] + rx]
 
             # cache autoguide stamp
             if config.autoguide is True:
                 autoguide_stamps[stamp_count] = data[positions[s1][1] - ag_r : positions[s1][1] + ag_r, positions[s1][0] - ag_r : positions[s1][0] + ag_r]
-
             stamp_count += 1
 
             ## hold processing for real time plotting and auotmated scene change detection
             if n % (pf - 1) == 0 and n != 0 and config.real_time_plot is True:
-
-                # check plotting overhead
-                t0_image = time.perf_counter()
-
+                t0_image = time.perf_counter() # check the plotting overhead
                 # process the tracked source stamps
                 if config.USE_CALIBRATION_FRAMES is True:
                     stamp1, stamp2 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1]), imageproc.proc(imageproc.time_average(stamp2s), dark_stamps[s2], flat_stamps[s2])
@@ -516,9 +464,8 @@ for batch in range(batches):
                     logger.info('Relative distances of peak flux from stamp centre in x and y are %.2f and %.2f' % (abs(xc_stamp_centrality - 0.5), abs(yc_stamp_centrality - 0.5)))
                     if abs(xc_stamp_centrality - 0.5) > config.stamp_centrality_thresh or abs(yc_stamp_centrality - 0.5) > config.stamp_centrality_thresh:
                         logger.info('Source stamp is badly off-centre, restarting reference frame acquisition.\n')
-                        # return camera to normal state and close
-                        cam.finish()
-                        cam.close()
+                        cam.finish() # return camera to normal state...
+                        cam.close() # ...and close
                         logger.info('Camera closed, run aborted...\n')
                         sys.exit()
 
@@ -590,10 +537,11 @@ for batch in range(batches):
         # if the scene has changed, kill the script
         if NEW_SCENE == True:
             logger.info('The scene has changed, aborting run.\n')
-            # return camera to normal state and close
-            cam.finish()
-            cam.close()
-            logger.info('Camera closed, run aborted...\n')
+            if ONLINE is True:
+                # return camera to normal state and close
+                cam.finish()
+                cam.close()
+                logger.info('Camera closed, run aborted...\n')
             sys.exit()
 
     ## save results
@@ -618,20 +566,3 @@ if ONLINE is True:
     logger.info('Camera closed.')
 else:
     logger.info('Finished offline test run.')
-
-'''
-elif n % (pf - 1) == 0 and n != 0 and config.real_time_plot is False:
-
-    # just save (processed) image sub-stamps
-    t0_image = time.perf_counter()
-    if config.USE_CALIBRATION_FRAMES is True:
-        stamp1 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1])
-    else:
-        stamp1 = imageproc.time_average(stamp1s)
-    save_numpy_as_fits(stamp1, os.path.join(fits_path, 'stamp1.fits'))
-
-    ## reinitialise arrays to hold stamps for saving time averages
-    stamp1s, stamp2s = np.zeros((pf, 2 * ry, 2 * rx)), np.zeros((pf, 2 * ry, 2 * rx))
-    stamp_count = 0
-    logger.info('Time to save the image stamp [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
-'''

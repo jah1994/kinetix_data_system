@@ -2,3 +2,6 @@ analysis/simulation_tests/analysisSIM/
 analysis/simulation_tests/notebooks/
 analysis/mcdonald_event_detection/figures/
 analysis/mcdonald_event_detection/notebooks/
+data_system/lab_tests/data_system_lab/notebooks/
+data_system/lab_tests/data_system_lab_ONLINE/calibration_images/
+data_system/lab_tests/data_system_lab_ONLINE/notes/
