@@ -2,7 +2,7 @@
 ## For testing purposes, it is useful to run the software offline on pre-acquired data
 ## ONLINE = True : Live mode acquistion with Kinetix
 ## ONLINE = False : (Testing onlyl) Run offline on pre-acquired imaging data
-online = True
+online = False
 
 ## OFFLINE only ##
 offline_path = "D:/offline_tests/data" # path to test data in offline mode only

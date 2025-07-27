@@ -11,7 +11,8 @@ import time
 sigma_thresh = 6
 
 # find SNR peak and image files
-path = "D:\\McDonaldObs_Feb_2024\\Analysis_PCA\\Analysis_20th_Feb_v2\\"
+#path = "D:\\McDonaldObs_Feb_2024\\Analysis_PCA\\Analysis_20th_Feb_v2\\"
+path = "D:\\McDonald_2022_Analysis\\analysis_Sept21\\"
 file_paths, img_paths = [], []
 for RUN in range(0, 100):
     for SCENE in range(0, 100):
@@ -74,7 +75,7 @@ for file_path, images in zip(file_paths, img_paths):
                     if event.key == 't':
                         # Save the current figure
                         file_name = path.split('\\')[-2] + '_' + img_path.split('\\')[4] + '_' + img_path.split('\\')[5] + '_' +  img_path.split('\\')[-1]
-                        plt.savefig('D:/test_images/' + file_name)
+                        plt.savefig('D:/test_images_2022/' + file_name)
                         print("Saving file:", file_name)
                         plt.close()
                     elif event.key == 'q':
