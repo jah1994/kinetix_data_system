@@ -337,22 +337,7 @@ pf = int(config["plot_freq"]) # plot / stamp save frequency
 
 # initialise real-time plotting
 if config["real_time_plot"] == "True":
-    fig = plt.figure(figsize=(2, 2))
     pow = float(config["pow"]) # power-law rescaling of stamp data for better viewing
-    ax1 = fig.add_subplot(1, 1, 1)
-    RX, RY = np.linspace(0, 2 * rx, num = 2 * rx), np.linspace(0, 2* ry, num = 2 * ry)
-    X, Y = np.meshgrid(RX, RY)
-    if config["USE_CALIBRATION_FRAMES"] == "True":
-        minview = int(np.median(dark))
-        maxview = minview + 100
-    else:
-        minview = sky ** pow
-        maxview = minview + 1000
-    img1 = ax1.imshow(X, cmap="Greys", vmin=minview, vmax=maxview, origin='lower')
-    ax1.set_title('Source: %d' % s1)
-    fig.canvas.draw()
-    ax1background = fig.canvas.copy_from_bbox(ax1.bbox) # cache the background (blitting)
-    plt.show(block=False)
 ################################################################################
 
 ######################### Data acquistion ######################################
@@ -537,11 +522,13 @@ for batch in range(batches):
                 stamp_count = 0 # reset stamp count
 
                 ## plot the source stamp (auto scaled for better viewing)
-                img1.set_data(stamp1.astype(float) ** (pow))
-                fig.canvas.restore_region(ax1background) # restore background
-                ax1.draw_artist(img1) # redraw just the updated data
-                fig.canvas.blit(ax1.bbox) # fillin the axes rectangle
-                fig.canvas.flush_events()
+                #img1.set_data(stamp1.astype(float) ** (pow))
+                #fig.canvas.restore_region(ax1background) # restore background
+                #ax1.draw_artist(img1) # redraw just the updated data
+                #fig.canvas.blit(ax1.bbox) # fillin the axes rectangle
+                #fig.canvas.flush_events()
+                #fig.savefig(os.path.join(img_path, 'temp.png'))
+                plt.imsave(os.path.join(img_path, 'temp.png'), stamp1.astype(float) ** (pow), cmap="gray", origin="lower")
                 logger.info('Time taken to render figures [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
 
             # update the image no. counter

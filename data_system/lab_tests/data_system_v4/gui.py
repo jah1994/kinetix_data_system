@@ -49,13 +49,13 @@ class TextImageApp:
 
         self.paned.add(self.left_container, weight=2)
 
-        # RIGHT SIDE (static + dynamic image)
+        # RIGHT SIDE (dynamic images)
         self.right_container = ttk.PanedWindow(self.paned, orient=tk.VERTICAL)
 
-        self.dynamic_fits_frame = ttk.LabelFrame(self.right_container, text="Fits stamp")
-        self.dynamic_fits_canvas = tk.Canvas(self.dynamic_fits_frame, bg="white", height=300)
-        self.dynamic_fits_canvas.pack(fill=tk.BOTH, expand=True)
-        self.right_container.add(self.dynamic_fits_frame, weight=1)
+        self.dynamic_stamp_frame = ttk.LabelFrame(self.right_container, text="Fits stamp")
+        self.dynamic_stamp_canvas = tk.Canvas(self.dynamic_stamp_frame, bg="white", height=300)
+        self.dynamic_stamp_canvas.pack(fill=tk.BOTH, expand=True)
+        self.right_container.add(self.dynamic_stamp_frame, weight=1)
 
         self.dynamic_img_frame = ttk.LabelFrame(self.right_container, text="Annotated reference")
         self.dynamic_canvas = tk.Canvas(self.dynamic_img_frame, bg="white", height=300)
@@ -75,7 +75,8 @@ class TextImageApp:
         self.external_process = None
 
         # dynamic plotting
-        self.poll_for_latest_image()
+        self.poll_for_latest_reference_image()
+        self.poll_for_latest_stamp_image()
 
 
     def create_menu(self):
@@ -145,7 +146,7 @@ class TextImageApp:
                 self.static_canvas.delete("all")
                 self.static_canvas.create_text(200, 150, text=f"Error:\n{e}", fill="red")
 
-    def refresh_dynamic_image(self, file_path):
+    def refresh_reference_image(self, file_path):
         if os.path.exists(file_path):
             try:
                 img = Image.open(file_path)
@@ -156,6 +157,18 @@ class TextImageApp:
             except Exception as e:
                 self.dynamic_canvas.delete("all")
                 self.dynamic_canvas.create_text(200, 150, text=f"Image error:\n{e}", fill="red")
+
+    def refresh_stamp_image(self, file_path):
+        if os.path.exists(file_path):
+            try:
+                img = Image.open(file_path)
+                img = img.resize((200, 200), Image.ANTIALIAS)
+                self.dynamic_stamp_frame = ImageTk.PhotoImage(img)
+                self.dynamic_stamp_canvas.delete("all")
+                self.dynamic_stamp_canvas.create_image(100, 100, image=self.dynamic_stamp_frame)
+            except Exception as e:
+                self.dynamic_stamp_canvas.delete("all")
+                self.dynamic_stamp_canvas.create_text(100, 100, text=f"Image error:\n{e}", fill="red")
 
     def run_external_script(self, script_path="auto.py"):
         def target():
@@ -216,7 +229,7 @@ class TextImageApp:
                 self.log_widget.see(tk.END)
                 self.log_widget.config(state=tk.DISABLED)
 
-    def get_latest_image_in_latest_scene(self, out_path):
+    def get_latest_reference_image(self, out_path):
         try:
             # Step 1: Get list of RUN_* dirs, sorted by creation time (descending)
             run_dirs = sorted(
@@ -252,17 +265,61 @@ class TextImageApp:
             return str(image_files[0])
 
         except Exception as e:
-            print(f"Error finding latest image: {e}")
+            print(f"Error finding latest reference image: {e}")
             return None
 
-    def poll_for_latest_image(self):
+    def get_latest_stamp_image(self, out_path):
+        try:
+            # Step 1: Get list of RUN_* dirs, sorted by creation time (descending)
+            run_dirs = sorted(
+                Path(out_path).glob("RUN_*"),
+                key=lambda d: d.stat().st_mtime,
+                reverse=True
+            )
+            if not run_dirs:
+                return None
 
+            latest_run = run_dirs[0]
+
+            # Step 2: Get list of SCENE_* dirs inside the latest RUN dir
+            scene_dirs = sorted(
+                latest_run.glob("SCENE_*"),
+                key=lambda d: d.stat().st_mtime,
+                reverse=True
+            )
+            if not scene_dirs:
+                return None
+
+            latest_scene = scene_dirs[0]
+
+            # Step 3: Look for image files in images/ inside latest SCENE
+            image_files = sorted(
+                (latest_scene / "images").glob("temp.png"),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )
+            if not image_files:
+                return None
+
+            return str(image_files[0])
+
+        except Exception as e:
+            print(f"Error finding latest stamp image: {e}")
+            return None
+
+    def poll_for_latest_reference_image(self):
         out_path = Path("D:/offline_tests/")  # replace with actual config or path
-        latest_img = self.get_latest_image_in_latest_scene(out_path)
-        if latest_img:
-            self.refresh_dynamic_image(latest_img)
+        latest_ref_img = self.get_latest_reference_image(out_path)
+        if latest_ref_img:
+            self.refresh_reference_image(latest_ref_img)
+        self.root.after(10000, self.poll_for_latest_reference_image)  # poll every 10 seconds
 
-        self.root.after(10000, self.poll_for_latest_image)  # poll every 10 seconds
+    def poll_for_latest_stamp_image(self):
+        out_path = Path("D:/offline_tests/")  # replace with actual config or path
+        latest_stamp_img = self.get_latest_stamp_image(out_path)
+        if latest_stamp_img:
+            self.refresh_stamp_image(latest_stamp_img)
+        self.root.after(5, self.poll_for_latest_stamp_image)  # poll every 5 seconds
 
 # Run the app
 if __name__ == "__main__":
