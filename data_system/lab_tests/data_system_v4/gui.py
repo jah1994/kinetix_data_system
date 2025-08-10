@@ -14,7 +14,7 @@ import psutil
 class TextImageApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Text, Log, and Image Viewer")
+        self.root.title("Kinetix data system")
         self.root.geometry("1000x650")
 
         self.current_text_file = None
@@ -25,8 +25,7 @@ class TextImageApp:
         quick_menu = tk.Frame(self.root)
         quick_menu.pack(fill=tk.X)
 
-        tk.Button(quick_menu, text="Load Text", command=lambda: self.open_text_file("config.txt")).pack(side=tk.LEFT, padx=5)
-        tk.Button(quick_menu, text="Load Static Image", command=lambda: self.open_static_image("")).pack(side=tk.LEFT, padx=5)
+        tk.Button(quick_menu, text="Load Config file", command=lambda: self.open_text_file("config.txt")).pack(side=tk.LEFT, padx=5)
         tk.Button(quick_menu, text="Run Script", command=self.run_external_script).pack(side=tk.LEFT, padx=5)
         tk.Button(quick_menu, text="Stop Script", command=self.stop_external_script).pack(side=tk.LEFT, padx=5)
 
@@ -47,29 +46,28 @@ class TextImageApp:
         self.log_widget.pack(fill=tk.BOTH, expand=True)
         self.left_container.add(self.log_frame, weight=1)
 
-        self.paned.add(self.left_container, weight=2)
+        self.paned.add(self.left_container, weight=1)
 
         # RIGHT SIDE (dynamic images)
         self.right_container = ttk.PanedWindow(self.paned, orient=tk.VERTICAL)
 
-        self.dynamic_stamp_frame = ttk.LabelFrame(self.right_container, text="Fits stamp")
+        self.dynamic_stamp_frame = ttk.LabelFrame(self.right_container, text="Source stamp(s)")
         self.dynamic_stamp_canvas = tk.Canvas(self.dynamic_stamp_frame, bg="white", height=300)
         self.dynamic_stamp_canvas.pack(fill=tk.BOTH, expand=True)
         self.right_container.add(self.dynamic_stamp_frame, weight=1)
 
-        self.dynamic_img_frame = ttk.LabelFrame(self.right_container, text="Annotated reference")
-        self.dynamic_canvas = tk.Canvas(self.dynamic_img_frame, bg="white", height=300)
+        self.dynamic_img_frame = ttk.LabelFrame(self.right_container, text="Reference image")
+        self.dynamic_canvas = tk.Canvas(self.dynamic_img_frame, bg="white", height=1200)
         self.dynamic_canvas.pack(fill=tk.BOTH, expand=True)
-        self.right_container.add(self.dynamic_img_frame, weight=1)
+        self.right_container.add(self.dynamic_img_frame, weight=4)
 
-        self.paned.add(self.right_container, weight=2)
+        self.paned.add(self.right_container, weight=3)
 
         # --- Menu ---
         self.create_menu()
 
         # Load defaults
         self.open_text_file("config.txt")
-        #self.open_static_image("images/ref_annotated.png")
 
         # store the external process so it can be accessed later
         self.external_process = None
@@ -87,7 +85,6 @@ class TextImageApp:
         file_menu.add_command(label="Save Text File", command=self.save_text_file)
         file_menu.add_command(label="Save Text As...", command=self.save_text_as)
         file_menu.add_separator()
-        file_menu.add_command(label="Open Static Image", command=self.open_static_image)
         file_menu.add_command(label="Run Script", command=self.run_external_script)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
@@ -132,43 +129,29 @@ class TextImageApp:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save file:\n{e}")
 
-    def open_static_image(self, file_path=None):
-        if not file_path:
-            file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.gif")])
-        if file_path and os.path.exists(file_path):
-            try:
-                img = Image.open(file_path)
-                img = img.resize((400, 300), Image.ANTIALIAS)
-                self.static_image_ref = ImageTk.PhotoImage(img)
-                self.static_canvas.delete("all")
-                self.static_canvas.create_image(200, 150, image=self.static_image_ref)
-            except Exception as e:
-                self.static_canvas.delete("all")
-                self.static_canvas.create_text(200, 150, text=f"Error:\n{e}", fill="red")
-
     def refresh_reference_image(self, file_path):
         if os.path.exists(file_path):
             try:
                 img = Image.open(file_path)
-                img = img.resize((400, 300), Image.ANTIALIAS)
+                img = img.resize((800, 700), Image.LANCZOS)
                 self.dynamic_image_ref = ImageTk.PhotoImage(img)
                 self.dynamic_canvas.delete("all")
-                self.dynamic_canvas.create_image(200, 150, image=self.dynamic_image_ref)
+                self.dynamic_canvas.create_image(400, 350, image=self.dynamic_image_ref)
             except Exception as e:
                 self.dynamic_canvas.delete("all")
-                self.dynamic_canvas.create_text(200, 150, text=f"Image error:\n{e}", fill="red")
+                self.dynamic_canvas.create_text(400, 350, text=f"Image error:\n{e}", fill="red")
 
     def refresh_stamp_image(self, file_path):
         if os.path.exists(file_path):
             try:
                 img = Image.open(file_path)
-                img = img.resize((200, 200), Image.ANTIALIAS)
+                img = img.resize((400, 200), Image.LANCZOS)
                 self.dynamic_stamp_frame = ImageTk.PhotoImage(img)
                 self.dynamic_stamp_canvas.delete("all")
-                self.dynamic_stamp_canvas.create_image(100, 100, image=self.dynamic_stamp_frame)
+                self.dynamic_stamp_canvas.create_image(200, 100, image=self.dynamic_stamp_frame)
             except Exception as e:
                 self.dynamic_stamp_canvas.delete("all")
-                self.dynamic_stamp_canvas.create_text(100, 100, text=f"Image error:\n{e}", fill="red")
+                self.dynamic_stamp_canvas.create_text(200, 100, text=f"Image error:\n{e}", fill="red")
 
     def run_external_script(self, script_path="auto.py"):
         def target():

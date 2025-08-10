@@ -40,9 +40,11 @@ import time
 from astropy.stats import mad_std
 from astropy.io import fits
 from photutils.detection import find_peaks
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+matplotlib.use('Agg')  # No GUI, faster
 
 # suppress numba warning re reflected lists
 if config["suppress_numba_warning"] == "True":
@@ -409,6 +411,7 @@ for batch in range(batches):
                 data = frame[0]['pixel_data'] # read the data
             else:
                 data = img_coll[n] # read the data (offline)
+                seqs[n] = n
                 # automated scene change detection tests: apply rotationn or integer shifts to create a "New" scene
                 if SCENE == 0 and batch >= 6:
                     #data = np.flip(data)
@@ -448,7 +451,7 @@ for batch in range(batches):
 
             ## hold processing for real time plotting and auotmated scene change detection
             if n % (pf - 1) == 0 and n != 0 and config["real_time_plot"] == "True":
-                t0_image = time.perf_counter() # check the plotting overhead
+                t0_scene_change = time.perf_counter() # check the scene change overhead
                 # process the tracked source stamps
                 if config["USE_CALIBRATION_FRAMES"] == "True":
                     stamp1, stamp2 = imageproc.proc(imageproc.time_average(stamp1s), dark_stamps[s1], flat_stamps[s1]), imageproc.proc(imageproc.time_average(stamp2s), dark_stamps[s2], flat_stamps[s2])
@@ -498,6 +501,8 @@ for batch in range(batches):
                     if len(candidate_change) >= int(config["consecutive"]) and ((candidate_change[-1] - candidate_change[-int(config["consecutive"])]) == int(config["consecutive"]) - 1) == True:
                         NEW_SCENE = True
 
+                logger.info('Time taken to assess if scene has changed [ms]: %.3f', 1000 * (time.perf_counter() - t0_scene_change))
+
                 # update change_counter
                 change_counter += 1
 
@@ -505,7 +510,7 @@ for batch in range(batches):
                 med_stamp1_fluxes.append(stamp1_flux)
                 med_stamp2_fluxes.append(stamp2_flux)
 
-                # save the plotted source stamp as a stamp.fits file
+                # save the source stamp as a .fits file
                 save_numpy_as_fits(stamp1, os.path.join(fits_path, 'source_%d.fits' % s1))
 
                 ## autoguiding
@@ -522,14 +527,10 @@ for batch in range(batches):
                 stamp_count = 0 # reset stamp count
 
                 ## plot the source stamp (auto scaled for better viewing)
-                #img1.set_data(stamp1.astype(float) ** (pow))
-                #fig.canvas.restore_region(ax1background) # restore background
-                #ax1.draw_artist(img1) # redraw just the updated data
-                #fig.canvas.blit(ax1.bbox) # fillin the axes rectangle
-                #fig.canvas.flush_events()
-                #fig.savefig(os.path.join(img_path, 'temp.png'))
-                plt.imsave(os.path.join(img_path, 'temp.png'), stamp1.astype(float) ** (pow), cmap="gray", origin="lower")
-                logger.info('Time taken to render figures [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
+                t0_image = time.perf_counter()
+                separator = np.zeros((stamp1.shape[0], int(0.1 * stamp1.shape[1])), dtype=stamp1.dtype)
+                plt.imsave(os.path.join(img_path, 'temp.png'), np.hstack((stamp1, separator, stamp2)) ** pow, cmap="gray", origin="lower")
+                logger.info('Time taken to render and save stamp figures [ms]: %.3f', 1000 * (time.perf_counter() - t0_image))
 
             # update the image no. counter
             n += 1
