@@ -11,25 +11,7 @@ import glob
 from pathlib import Path
 import time
 import psutil
-
-def load_config(path="config.txt"):
-    config = {}
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue  # Skip empty lines and full-line comments
-
-            # Remove inline comment
-            line = line.split("#", 1)[0].strip()
-
-            if "=" in line:
-                key, value = line.split("=", 1)
-                config[key.strip()] = value.strip().strip('"').strip("'")  # remove quotes
-    return config
-
-config = load_config()
-
+import imageproc
 
 class TextImageApp:
     def __init__(self, root):
@@ -41,6 +23,9 @@ class TextImageApp:
         self.static_image_ref = None
         self.dynamic_image_ref = None
 
+        # default mode: png
+        self.reference_mode = "png"
+
         # --- Top Buttons ---
         quick_menu = tk.Frame(self.root)
         quick_menu.pack(fill=tk.X)
@@ -48,6 +33,8 @@ class TextImageApp:
         tk.Button(quick_menu, text="Load Config file", command=lambda: self.open_text_file("config.txt")).pack(side=tk.LEFT, padx=5)
         tk.Button(quick_menu, text="Run Script", command=self.run_external_script).pack(side=tk.LEFT, padx=5)
         tk.Button(quick_menu, text="Stop Script", command=self.stop_external_script).pack(side=tk.LEFT, padx=5)
+        self.toggle_btn = tk.Button(quick_menu, text="Reference mode: PNG", command=self.toggle_reference_mode)
+        self.toggle_btn.pack(side=tk.LEFT, padx=5)
 
         # --- Main Split: Left (text/log), Right (images) ---
         self.paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -96,7 +83,6 @@ class TextImageApp:
 
         # add the right container to the main paned window
         self.paned.add(self.right_container, weight=3)
-
 
         # --- Menu ---
         self.create_menu()
@@ -165,16 +151,35 @@ class TextImageApp:
                 messagebox.showerror("Error", f"Failed to save file:\n{e}")
 
     def refresh_reference_image(self, file_path):
-        if os.path.exists(file_path):
-            try:
+        try:
+            if self.reference_mode == "png":
                 img = Image.open(file_path)
                 img = img.resize((800, 700), Image.LANCZOS)
-                self.dynamic_image_ref = ImageTk.PhotoImage(img)
-                self.dynamic_canvas.delete("all")
-                self.dynamic_canvas.create_image(400, 350, image=self.dynamic_image_ref)
-            except Exception as e:
-                self.dynamic_canvas.delete("all")
-                self.dynamic_canvas.create_text(400, 350, text=f"Image error:\n{e}", fill="red")
+            else:  # FITS mode
+                with fits.open(file_path) as hdul:
+                    data = hdul[0].data
+                if data is None:
+                    raise ValueError("FITS file has no image data")
+
+                # Ensure uint16 fidelity is preserved internally
+                data = np.nan_to_num(data).astype(np.uint16)
+
+                # For display -> scale to 0–255 using percentiles (avoids contrast washout)
+                lo, hi = np.percentile(data, (1, 99))
+                stretched = np.clip((data - lo) / (hi - lo), 0, 1)
+                display_data = (255 * stretched).astype(np.uint8)
+                display_data = np.flipud(display_data)
+
+                img = Image.fromarray(display_data, mode="L")
+                img = img.resize((800, 700), Image.LANCZOS)
+
+            self.dynamic_image_ref = ImageTk.PhotoImage(img)
+            self.dynamic_canvas.delete("all")
+            self.dynamic_canvas.create_image(400, 350, image=self.dynamic_image_ref)
+
+        except Exception as e:
+            self.dynamic_canvas.delete("all")
+            self.dynamic_canvas.create_text(400, 350, text=f"Image error:\n{e}", fill="red")
 
     def refresh_stamp_image(self, file_path, canvas, attr_name):
         def fits_to_photoimage(file_path, size=(200, 200)):
@@ -268,36 +273,36 @@ class TextImageApp:
                 self.log_widget.see(tk.END)
                 self.log_widget.config(state=tk.DISABLED)
 
+    def toggle_reference_mode(self):
+        """Toggle between PNG and FITS display mode for reference image"""
+        if self.reference_mode == "png":
+            self.reference_mode = "fits"
+            self.toggle_btn.config(text="Reference mode: FITS")
+        else:
+            self.reference_mode = "png"
+            self.toggle_btn.config(text="Reference mode: PNG")
+
     def get_latest_reference_image(self, out_path):
         try:
-            # Step 1: Get list of RUN_* dirs, sorted by creation time (descending)
-            run_dirs = sorted(
-                Path(out_path).glob("RUN_*"),
-                key=lambda d: d.stat().st_mtime,
-                reverse=True
-            )
+            run_dirs = sorted(Path(out_path).glob("RUN_*"), key=lambda d: d.stat().st_mtime, reverse=True)
             if not run_dirs:
                 return None
-
             latest_run = run_dirs[0]
 
-            # Step 2: Get list of SCENE_* dirs inside the latest RUN dir
-            scene_dirs = sorted(
-                latest_run.glob("SCENE_*"),
-                key=lambda d: d.stat().st_mtime,
-                reverse=True
-            )
+            scene_dirs = sorted(latest_run.glob("SCENE_*"), key=lambda d: d.stat().st_mtime, reverse=True)
             if not scene_dirs:
                 return None
-
             latest_scene = scene_dirs[0]
 
-            # Step 3: Look for image files in images/ inside latest SCENE
-            image_files = sorted(
-                (latest_scene / "images").glob("ref_annotated.png"),
-                key=lambda f: f.stat().st_mtime,
-                reverse=True
-            )
+            if self.reference_mode == "png":
+                # look for PNG
+                image_files = sorted((latest_scene / "images").glob("ref_annotated.png"),
+                                     key=lambda f: f.stat().st_mtime, reverse=True)
+            else:
+                # look for FITS
+                image_files = sorted((latest_scene / "fits").glob("ref_temp.fits"),
+                                     key=lambda f: f.stat().st_mtime, reverse=True)
+
             if not image_files:
                 return None
 
@@ -351,7 +356,7 @@ class TextImageApp:
         latest_ref_img = self.get_latest_reference_image(out_path)
         if latest_ref_img:
             self.refresh_reference_image(latest_ref_img)
-        self.root.after(10000, self.poll_for_latest_reference_image)  # poll every 10 seconds
+        self.root.after(int(1e3 * float(config['poll_time'])), self.poll_for_latest_reference_image)
 
     def poll_for_latest_stamp_image(self):
         out_path = Path(config['out_path'])
@@ -364,7 +369,25 @@ class TextImageApp:
                         self.refresh_stamp_image(file_path, canvas, str(file_path))
             except IndexError:
                 pass
-        self.root.after(5, self.poll_for_latest_stamp_image)  # poll every 5 seconds
+        self.root.after(int(1e3 * float(config['poll_time'])), self.poll_for_latest_stamp_image)
+
+def load_config(path="config.txt"):
+    config = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue  # Skip empty lines and full-line comments
+
+            # Remove inline comment
+            line = line.split("#", 1)[0].strip()
+
+            if "=" in line:
+                key, value = line.split("=", 1)
+                config[key.strip()] = value.strip().strip('"').strip("'")  # remove quotes
+    return config
+
+config = load_config()
 
 # Run the app
 if __name__ == "__main__":
