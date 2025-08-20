@@ -350,8 +350,8 @@ for batch in range(batches):
                     data = shift(data, (xshift, yshift), order=0, cval=np.median(data)).astype(np.uint16)
                 elif SCENE == 1:
                     data = np.flip(data)
-                elif SCENE == 2:
-                    data = shift(data, (xshift, yshift), order=0, cval=np.median(data)).astype(np.uint16)
+                #elif SCENE == 2:
+                #    data = shift(data, (xshift, yshift), order=0, cval=np.median(data)).astype(np.uint16)
 
             # initialise a performance counter for the image processing ####
             tproc = time.perf_counter()
@@ -393,14 +393,17 @@ for batch in range(batches):
                 stamp1_flux_std, stamp2_flux_std = mad_std(med_stamp1_fluxes), mad_std(med_stamp2_fluxes) # historicdal MAD scaled to std
 
                 # check aperture stamp has not shifted badly in time since the reference exposure frame was acquired
-                s1_off_centre = imageproc.check_stamp_centrality(stamp1, med_stamp1_fluxes, int(config["burn_in"]), float(config["stamp_centrality_thresh"]))
-                s2_off_centre = imageproc.check_stamp_centrality(stamp2, med_stamp2_fluxes, int(config["burn_in"]), float(config["stamp_centrality_thresh"]))
-                if s1_off_centre == True and s2_off_centre == True:
-                    logger.info('Source stamps are badly off-centre, restarting reference frame acquisition.\n')
-                    cam.finish() # return camera to normal state...
-                    cam.close() # ...and close
-                    logger.info('Camera closed, run aborted...\n')
-                    sys.exit()
+                if len(med_stamp1_fluxes) <= int(config["burn_in"]):
+                    s1_off_centre, s1_logger_info = imageproc.check_stamp_centrality(s1, stamp1, float(config["stamp_centrality_thresh"]))
+                    s2_off_centre, s2_logger_info = imageproc.check_stamp_centrality(s2, stamp2, float(config["stamp_centrality_thresh"]))
+                    logger.info(s1_logger_info[0])
+                    logger.info(s2_logger_info[0])
+                    if s1_off_centre == True or s2_off_centre == True:
+                        logger.info('Source stamps are badly off-centre, restarting reference frame acquisition.\n')
+                        cam.finish() # return camera to normal state...
+                        cam.close() # ...and close
+                        logger.info('Camera closed, run aborted...\n')
+                        sys.exit()
 
                 # check if the scene has changed
                 candidate_change, change_counter, NEW_SCENE, logger_info = imageproc.scene_change_check([s1, s2],

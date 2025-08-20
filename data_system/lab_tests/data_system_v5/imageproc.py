@@ -374,14 +374,15 @@ def find_offline_mode_data(path):
                 ordered_files.append(f)
     return ordered_files
 
-def check_stamp_centrality(stamp, med_stamp_fluxes, burn_in, centrality_thresh):
+def check_stamp_centrality(source_id, stamp, centrality_thresh):
     off_centre = False
-    if len(med_stamp_fluxes) <= burn_in:
-        xc_stamp, yc_stamp = np.where(stamp == np.max(stamp))
-        xc_stamp_centrality, yc_stamp_centrality = abs(xc_stamp[0] - stamp.shape[0]) / stamp.shape[0], abs(yc_stamp[0] - stamp.shape[1]) / stamp.shape[1]
-        if abs(xc_stamp_centrality - 0.5) > centrality_thresh or abs(yc_stamp_centrality - 0.5) > centrality_thresh:
-            off_centre = True
-    return off_centre
+    logger_info = []
+    xc_stamp, yc_stamp = np.where(stamp == np.max(stamp))
+    xc_stamp_centrality, yc_stamp_centrality = abs(xc_stamp[0] - stamp.shape[0]) / stamp.shape[0], abs(yc_stamp[0] - stamp.shape[1]) / stamp.shape[1]
+    logger_info.append('(Source %d) Relative distances of peak flux from stamp centre in x and y are %.2f and %.2f' % (source_id, abs(xc_stamp_centrality - 0.5), abs(yc_stamp_centrality - 0.5)))
+    if abs(xc_stamp_centrality - 0.5) > centrality_thresh or abs(yc_stamp_centrality - 0.5) > centrality_thresh:
+        off_centre = True
+    return off_centre, logger_info
 
 def scene_change_check(source_ids, med_stamp_fluxes, stamp_fluxes, stamp_fluxes_hist, stamp_fluxes_std,
                         rx, ry, burn_in, sky_lvls, change_counter, candidate_change,

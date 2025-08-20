@@ -31,6 +31,7 @@ class TextImageApp:
         quick_menu.pack(fill=tk.X)
 
         tk.Button(quick_menu, text="Load Config file", command=lambda: self.open_text_file("config.txt")).pack(side=tk.LEFT, padx=5)
+        tk.Button(quick_menu, text="Save Config file", command=self.save_text_file).pack(side=tk.LEFT, padx=5)
         tk.Button(quick_menu, text="Run Script", command=self.run_external_script).pack(side=tk.LEFT, padx=5)
         tk.Button(quick_menu, text="Stop Script", command=self.stop_external_script).pack(side=tk.LEFT, padx=5)
         self.toggle_btn = tk.Button(quick_menu, text="Reference mode: PNG", command=self.toggle_reference_mode)
@@ -88,7 +89,9 @@ class TextImageApp:
         self.create_menu()
 
         # Load defaults
-        self.open_text_file("config.txt")
+        self.config_path = "config.txt"
+        self.config_mtime = os.path.getmtime(self.config_path)
+        self.config = load_config(self.config_path)
 
         # store the external process so it can be accessed later
         self.external_process = None
@@ -96,6 +99,9 @@ class TextImageApp:
         # dynamic plotting
         self.poll_for_latest_reference_image()
         self.poll_for_latest_stamp_image()
+
+        # start config watcher
+        self.poll_for_config_updates()
 
 
     def create_menu(self):
@@ -107,6 +113,7 @@ class TextImageApp:
         file_menu.add_command(label="Save Text As...", command=self.save_text_as)
         file_menu.add_separator()
         file_menu.add_command(label="Run Script", command=self.run_external_script)
+        file_menu.add_command(label="Stop Script", command=self.stop_external_script)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
 
@@ -352,14 +359,14 @@ class TextImageApp:
             return None
 
     def poll_for_latest_reference_image(self):
-        out_path = Path(config['out_path'])
+        out_path = Path(self.config['out_path'])
         latest_ref_img = self.get_latest_reference_image(out_path)
         if latest_ref_img:
             self.refresh_reference_image(latest_ref_img)
-        self.root.after(int(1e3 * float(config['poll_time'])), self.poll_for_latest_reference_image)
+        self.root.after(int(1e3 * float(self.config['poll_time'])), self.poll_for_latest_reference_image)
 
     def poll_for_latest_stamp_image(self):
-        out_path = Path(config['out_path'])
+        out_path = Path(self.config['out_path'])
         latest_stamp_imgs = self.get_latest_stamp_image(out_path)
         for i, canvas in enumerate([self.dynamic_stamp_canvas1, self.dynamic_stamp_canvas2]):
             try:
@@ -369,7 +376,27 @@ class TextImageApp:
                         self.refresh_stamp_image(file_path, canvas, str(file_path))
             except IndexError:
                 pass
-        self.root.after(int(1e3 * float(config['poll_time'])), self.poll_for_latest_stamp_image)
+        self.root.after(int(1e3 * float(self.config['poll_time'])), self.poll_for_latest_stamp_image)
+
+    def poll_for_config_updates(self):
+        try:
+            mtime = os.path.getmtime(self.config_path)
+            if mtime != self.config_mtime:
+                self.config_mtime = mtime
+                self.config = load_config(self.config_path)
+                self.log_widget.config(state=tk.NORMAL)
+                self.log_widget.insert(tk.END, f"Config reloaded at {time.strftime('%H:%M:%S')}\n")
+                self.log_widget.see(tk.END)
+                self.log_widget.config(state=tk.DISABLED)
+        except Exception as e:
+            self.log_widget.config(state=tk.NORMAL)
+            self.log_widget.insert(tk.END, f"Config reload failed: {e}\n")
+            self.log_widget.see(tk.END)
+            self.log_widget.config(state=tk.DISABLED)
+
+        # check again in 1s
+        self.root.after(1000, self.poll_for_config_updates)
+
 
 def load_config(path="config.txt"):
     config = {}
@@ -386,8 +413,6 @@ def load_config(path="config.txt"):
                 key, value = line.split("=", 1)
                 config[key.strip()] = value.strip().strip('"').strip("'")  # remove quotes
     return config
-
-config = load_config()
 
 # Run the app
 if __name__ == "__main__":
